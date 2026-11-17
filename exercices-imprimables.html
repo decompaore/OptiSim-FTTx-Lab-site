@@ -1,0 +1,365 @@
+<!doctype html>
+<!-- OptiSim FTTx Lab — Exercices et corrigés imprimables — Auteur : Hassami COMPAORE -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exercices OptiSim FTTx</title>
+<meta name="author" content="Hassami COMPAORE">
+<style>
+  :root { --ink:#0f172a; --muted:#475569; --line:#cbd5e1; --soft:#f1f5f9; --brand:#0f766e; --blue:#1d4ed8; --warn:#b45309; --warn-soft:#fef3c7; --prof:#7c3aed; --prof-soft:#f3e8ff; }
+  * { box-sizing:border-box; }
+  html { background:#e2e8f0; }
+  body { margin:0; font:10pt/1.36 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:var(--ink); background:#e2e8f0; }
+  .toolbar { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:center; padding:10px 16px; background:#0f172a; color:#fff; font-size:10.5pt; }
+  .toolbar button { font:inherit; font-weight:600; padding:6px 14px; border-radius:6px; border:0; background:#22c55e; color:#052e16; cursor:pointer; }
+  .toolbar label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+  body.no-prof .prof { display:none; }
+  .sheet { width:210mm; min-height:297mm; margin:12px auto; padding:13mm 15mm 16mm; background:#fff; box-shadow:0 2px 10px #0002; position:relative; }
+  @media (max-width:820px) { .sheet { width:auto; min-height:0; margin:12px 16px; padding:20px 16px; } }
+  h1,h2,h3 { line-height:1.2; margin:0 0 .5em; }
+  h2 { font-size:16pt; color:var(--brand); border-bottom:2px solid var(--brand); padding-bottom:4px; }
+  .prof h2 { color:var(--prof); border-color:var(--prof); }
+  .prof h3 { margin:.7em 0 .25em; }
+  h3 { font-size:12pt; margin:1.1em 0 .3em; display:flex; justify-content:space-between; gap:8px; }
+  h3 small { font-weight:400; color:var(--muted); font-size:9pt; white-space:nowrap; }
+  p { margin:.35em 0 .6em; }
+  ol,ul { margin:.3em 0 .7em; padding-left:1.4em; }
+  li { margin:.15em 0; }
+  table { width:100%; border-collapse:collapse; margin:.4em 0 .9em; font-size:9.5pt; }
+  th,td { border:1px solid var(--line); padding:3px 6px; text-align:left; vertical-align:top; }
+  th { background:var(--soft); }
+  .num { text-align:right; white-space:nowrap; }
+  td.blank { height:6.5mm; }
+  .answer { border-bottom:1px dotted #94a3b8; height:6.5mm; }
+  .ident { display:flex; flex-wrap:wrap; gap:4px 18px; font-size:10pt; border:1px solid var(--line); border-radius:6px; padding:6px 10px; margin-bottom:8px; }
+  .box { border:1px solid var(--line); border-left:5px solid var(--brand); background:#f8fafc; border-radius:6px; padding:7px 12px; margin:.5em 0 .9em; }
+  .box.tip { border-left-color:var(--blue); }
+  .box.prof-box { border-left-color:var(--prof); background:var(--prof-soft); }
+  .box > :first-child { margin-top:0; } .box > :last-child { margin-bottom:0; }
+  .qcm { list-style:none; padding-left:0; }
+  .qcm li::before { content:"☐ "; }
+  .chain { display:flex; flex-wrap:wrap; align-items:center; gap:4px; font-size:9.5pt; margin:.4em 0 .8em; }
+  .chain span { border:1.5px solid var(--ink); border-radius:5px; padding:3px 7px; background:#fff; font-weight:600; }
+  .chain i { font-style:normal; color:var(--muted); font-size:8.5pt; }
+  .cols2 { display:grid; grid-template-columns:1fr 1fr; gap:6px 18px; }
+  @media (max-width:600px) { .cols2 { grid-template-columns:1fr; } }
+  .foot { position:absolute; left:16mm; right:16mm; bottom:8mm; display:flex; justify-content:space-between; font-size:8pt; color:var(--muted); border-top:1px solid var(--line); padding-top:3px; }
+  @media (max-width:820px) { .foot { position:static; margin-top:16px; } }
+  .ok { color:#15803d; font-weight:700; }
+  figure.shot { margin:.5em 0 .9em; break-inside:avoid; page-break-inside:avoid; text-align:center; }
+  figure.shot img { display:inline-block; max-width:100%; max-height:118mm; width:auto; height:auto; border:1px solid var(--line); border-radius:6px; box-shadow:0 1px 4px #0001; }
+  figure.shot figcaption { font-size:8.5pt; color:var(--muted); margin-top:3px; font-style:italic; }
+  .side { display:grid; grid-template-columns:1fr 66mm; gap:12px; align-items:start; }
+  .side > figure.shot { margin-top:0; }
+  .side figure.shot img { max-height:120mm; }
+  @media (max-width:600px) { .side { grid-template-columns:1fr; } }
+
+  @page { size:A4; margin:0; }
+  @media print {
+    html, body { background:#fff; }
+    .toolbar { display:none; }
+    .sheet { margin:0; box-shadow:none; width:210mm; min-height:297mm; break-after:page; page-break-after:always; }
+    .sheet:last-child { break-after:auto; page-break-after:auto; }
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  Exercices et corrigés — format A4
+  <button onclick="window.print()">Imprimer / enregistrer en PDF</button>
+</div>
+
+<!-- ============================ PAGE 1 ============================ -->
+<section class="sheet">
+  <h2>Exercices — Réseaux fibre optique FTTx</h2>
+  <div class="ident">Nom : ....................................... Prénom : ....................................... Classe : ........ Date : ............</div>
+  <div class="box tip"><p><b>Valeurs à utiliser</b> (ce sont celles du simulateur OptiSim) : fibre monomode 0,35 / 0,25 / 0,22 dB/km à 1310 / 1490 / 1550 nm · épissure fusion 0,05 dB · épissure mécanique 0,2 dB · connecteur ou traversée (ODF, PMI, SRO, PTO) 0,5 dB · coupleurs 1:2 → 3,5 · 1:4 → 7,2 · 1:8 → 10,5 · 1:16 → 13,8 · 1:32 → 17,2 · 1:64 → 21,0 dB · OLT +4 dBm · ONT B+ : sensibilité −27 dBm, saturation −8 dBm · marge conseillée ≥ 3 dB.</p></div>
+
+  <h3>Exercice 1 — Vocabulaire du réseau FTTH <small>Découverte · 10 min</small></h3>
+  <p>Donnez la signification de chaque sigle et placez-le dans l'ordre du réseau (de 1 = central opérateur à 6 = abonné).</p>
+  <table>
+    <tr><th style="width:14%">Sigle</th><th>Signification</th><th style="width:16%">Ordre (1 à 6)</th></tr>
+    <tr><td><b>PTO</b></td><td class="blank"></td><td></td></tr>
+    <tr><td><b>NRO</b></td><td class="blank"></td><td></td></tr>
+    <tr><td><b>ONT</b></td><td class="blank"></td><td></td></tr>
+    <tr><td><b>SRO</b></td><td class="blank"></td><td></td></tr>
+    <tr><td><b>PBO</b></td><td class="blank"></td><td></td></tr>
+    <tr><td><b>ODF</b></td><td class="blank"></td><td></td></tr>
+  </table>
+  <p>Dans un immeuble, quel équipement remplace le PBO de rue en pied d'immeuble ? ..................... Et sur chaque palier ? .....................</p>
+
+  <h3>Exercice 2 — Le dB et le dBm <small>Découverte · 15 min</small></h3>
+  <p>Rappels : P(dBm) = 10 × log(P en mW). Ajouter 3 dB ≈ multiplier par 2 ; ajouter 10 dB = multiplier par 10.</p>
+  <div class="cols2">
+    <table>
+      <tr><th>Puissance (mW)</th><th>Puissance (dBm)</th></tr>
+      <tr><td>1 mW</td><td class="blank"></td></tr>
+      <tr><td>2 mW</td><td class="blank"></td></tr>
+      <tr><td>0,5 mW</td><td class="blank"></td></tr>
+      <tr><td>0,1 mW</td><td class="blank"></td></tr>
+      <tr><td>0,001 mW</td><td class="blank"></td></tr>
+    </table>
+    <table>
+      <tr><th>Puissance (dBm)</th><th>Puissance (mW)</th></tr>
+      <tr><td>+4 dBm (OLT)</td><td class="blank"></td></tr>
+      <tr><td>−3 dBm</td><td class="blank"></td></tr>
+      <tr><td>−10 dBm</td><td class="blank"></td></tr>
+      <tr><td>−27 dBm (sensibilité ONT)</td><td class="blank"></td></tr>
+      <tr><td>−8 dBm (saturation ONT)</td><td class="blank"></td></tr>
+    </table>
+  </div>
+  <ol>
+    <li>Un émetteur à −5 dBm traverse une liaison de 12 dB de pertes. Puissance reçue ? <span class="answer" style="display:inline-block;width:40mm;height:5mm"></span></li>
+    <li>On mesure +4 dBm en entrée et −15,5 dBm en sortie. Pertes de la liaison ? <span class="answer" style="display:inline-block;width:40mm;height:5mm"></span></li>
+    <li>Pourquoi a-t-on le droit d'additionner des dB mais pas des dBm ?</li>
+  </ol>
+  <div class="answer"></div>
+  <div class="foot"><span>Exercices 1 et 2</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ PAGE 2 ============================ -->
+<section class="sheet">
+  <h3>Exercice 3 — Atténuation linéique <small>Découverte · 10 min</small></h3>
+  <p>Calculez l'atténuation de la fibre seule (A = α × L).</p>
+  <table>
+    <tr><th>Longueur</th><th class="num">1310 nm</th><th class="num">1490 nm</th><th class="num">1550 nm</th></tr>
+    <tr><td>5 km</td><td class="blank"></td><td></td><td></td></tr>
+    <tr><td>800 m</td><td class="blank"></td><td></td><td></td></tr>
+    <tr><td>12,4 km</td><td class="blank"></td><td></td><td></td></tr>
+  </table>
+  <p>Quelle longueur d'onde transporte le signal descendant GPON (vers l'abonné) ? ............ nm</p>
+
+  <h3>Exercice 4 — Les coupleurs <small>Intermédiaire · 15 min</small></h3>
+  <p>Un coupleur 1:N divise la puissance en N. Sa perte théorique est 10 × log(N) ; la différence avec la perte réelle s'appelle la <b>perte d'excès</b>.</p>
+  <table>
+    <tr><th>Coupleur</th><th class="num">Perte théorique 10·log(N)</th><th class="num">Perte réelle</th><th class="num">Perte d'excès</th></tr>
+    <tr><td>1:8</td><td class="blank"></td><td class="num">10,5 dB</td><td></td></tr>
+    <tr><td>1:16</td><td class="blank"></td><td class="num">13,8 dB</td><td></td></tr>
+    <tr><td>1:32</td><td class="blank"></td><td class="num">17,2 dB</td><td></td></tr>
+    <tr><td>1:64</td><td class="blank"></td><td class="num">21,0 dB</td><td></td></tr>
+  </table>
+  <ol>
+    <li>Combien de dB perd-on à chaque fois que l'on double le nombre de sorties (en théorie) ?</li>
+    <li>Un SRO 1:8 alimente 8 PBO équipés chacun d'un mini-coupleur 1:4. Combien d'abonnés au maximum ? Quelle perte totale due aux coupleurs ?</li>
+  </ol>
+  <div class="answer"></div><div class="answer"></div>
+  <div class="foot"><span>Exercices 3 et 4</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h3>Exercice 5 — Bilan complet d'une villa <small>Intermédiaire · 25 min</small></h3>
+  <div class="chain"><span>OLT +4 dBm · 1490 nm</span><i>jarretière</i><span>ODF</span><i>G.652D 4 km · fusion/fusion</i><span>SRO 1:16</span><i>G.652D 600 m · fusion/fusion</i><span>PBO (épissures)</span><i>drop 50 m · fusion/fusion</i><span>Villa : gaine 20 m → PTO</span><i>jarretière</i><span>ONT</span></div>
+  <p>Le PBO est à épissurage : ses pertes sont déjà comptées dans les épissures des câbles. Les jarretières ne comptent pas (leurs connecteurs sont dans l'ODF et la PTO).</p>
+  <table>
+    <tr><th>Tronçon</th><th>Détail du calcul</th><th class="num" style="width:26mm">Perte (dB)</th></tr>
+    <tr><td>NRO : traversée de l'ODF</td><td></td><td class="blank"></td></tr>
+    <tr><td>Transport 4 km + 2 épissures</td><td></td><td class="blank"></td></tr>
+    <tr><td>SRO : brassage + coupleur</td><td></td><td class="blank"></td></tr>
+    <tr><td>Distribution 600 m + 2 épissures</td><td></td><td class="blank"></td></tr>
+    <tr><td>Branchement : drop + gaine + 2 épissures</td><td></td><td class="blank"></td></tr>
+    <tr><td>PTO</td><td></td><td class="blank"></td></tr>
+    <tr><th colspan="2">Atténuation totale</th><td class="blank"></td></tr>
+  </table>
+  <p>Puissance reçue par l'ONT : .................. dBm · Marge : .................. dB · Statut : ..................</p>
+  <h3 style="margin-top:1.4em">Vérification dans OptiSim</h3>
+  <div class="side">
+  <ol>
+    <li>Construisez le réseau ci-dessus. Pour la villa, glissez un <b>Bâtiment simple</b>, réglez sa <b>Gaine intérieure</b> à <b>20 m</b> (capture ci-contre), puis déposez la PTO et l'ONT à l'intérieur du cadre.</li>
+    <li>Le drop se tire du PBO vers la PTO avec <b>50 m</b> : la gaine de 20 m est ajoutée automatiquement.</li>
+    <li>Sélectionnez l'ONT, onglet <b>Bilan optique</b> : comparez chaque ligne avec votre tableau.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/exercices/ex5-gaine.jpg" alt="Inspecteur du bâtiment simple Villa : champ Gaine intérieure (adduction vers PTO) réglé à 20 m">
+    <figcaption>Propriétés de la villa : la gaine intérieure.</figcaption>
+  </figure>
+  </div>
+  <p>Écart éventuel entre votre calcul et le simulateur : .................. dB · Explication : ..........................................................</p>
+  <div class="foot"><span>Exercice 5</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ PAGE 3 ============================ -->
+<section class="sheet">
+  <h3>Exercice 6 — Colonne montante <small>Intermédiaire · 10 min</small></h3>
+  <p>Immeuble R+6 avec sous-sol, hauteur d'étage 2,8 m. Le PMI est au sous-sol (niveau −1). Longueur de colonne = écart d'étages × hauteur d'étage.</p>
+  <div class="side">
+  <div>
+  <table style="margin-top:0">
+    <tr><th>Trajet</th><th class="num">Écart d'étages</th><th class="num">Longueur (m)</th></tr>
+    <tr><td>PMI → PBO étage 2</td><td class="blank"></td><td></td></tr>
+    <tr><td>PMI → PBO étage 4</td><td class="blank"></td><td></td></tr>
+    <tr><td>PMI → PBO étage 6</td><td class="blank"></td><td></td></tr>
+  </table>
+  <p>La perte de fibre de la colonne jusqu'au 6<sup>e</sup> étage (1490 nm) est-elle significative ? Justifiez.</p>
+  <div class="answer"></div><div class="answer"></div>
+  <p>Dans le simulateur, sur un immeuble R+3 (capture ci-contre, 3 m par étage), quelle longueur affiche la colonne entre le PMI (sous-sol) et le PBO de l'étage 1 ? ............ m</p>
+  </div>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/immeuble.jpg" alt="Immeuble R+3 dans OptiSim : PMI au sous-sol, colonne montante orange, PBO, PTO et ONT à chaque étage">
+    <figcaption>Exemple d'immeuble R+3 dans OptiSim (TP 3) : la colonne montante est en orange dans la gaine technique.</figcaption>
+  </figure>
+  </div>
+
+  <h3>Exercice 7 — Statut d'un ONT <small>Intermédiaire · 10 min</small></h3>
+  <p>ONT de classe B+ (sensibilité −27 dBm, saturation −8 dBm). Complétez : statut = OK, faible (marge &lt; 3 dB), LOS ou saturation.</p>
+  <table>
+    <tr><th>P reçue</th><th class="num">−29 dBm</th><th class="num">−25,5 dBm</th><th class="num">−24 dBm</th><th class="num">−15 dBm</th><th class="num">−6 dBm</th></tr>
+    <tr><td>Marge (dB)</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>Statut</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+  </table>
+
+  <div class="foot"><span>Exercices 6 et 7</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h3>Exercice 8 — Dimensionner une liaison <small>Avancé · 20 min</small></h3>
+  <p>Réseau : OLT (+4 dBm, 1490 nm) → ODF → câble de transport → SRO → câble de distribution → PBO (épissures) → drop → PTO → ONT B+. Chacun des 3 câbles est épissuré par fusion aux deux extrémités. On veut une marge d'au moins 3 dB.</p>
+  <ol>
+    <li>Quel est le budget optique disponible (pertes maximales acceptables, marge comprise) ?</li>
+    <li>Calculez les pertes fixes (hors fibre) avec un coupleur 1:32 au SRO.</li>
+    <li>En déduire la longueur totale de fibre maximale.</li>
+    <li>Même question avec un coupleur 1:64.</li>
+  </ol>
+  <div class="answer"></div><div class="answer"></div><div class="answer"></div><div class="answer"></div>
+
+  <h3>Exercice 9 — Connecteurs APC / UPC <small>Découverte · 5 min</small></h3>
+  <p>Cochez les affirmations exactes :</p>
+  <ul class="qcm">
+    <li>Un connecteur APC a une férule polie en angle (8°) et il est de couleur verte.</li>
+    <li>Un connecteur UPC est bleu et poli droit.</li>
+    <li>On peut brancher une jarretière UPC sur un port APC sans conséquence.</li>
+    <li>En FTTH (GPON), on utilise généralement des connecteurs SC/APC.</li>
+    <li>Une jarretière UPC branchée entre une PTO APC et un ONT APC ajoute 3 dB de pertes au total.</li>
+  </ul>
+  <div class="foot"><span>Exercices 8 et 9</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ PAGE 4 ============================ -->
+<section class="sheet">
+  <h3>Exercice 10 — Lire une trace OTDR <small>Avancé · 20 min</small></h3>
+  <p>Un abonné se plaint d'une connexion instable. Le technicien tire l'OTDR depuis le NRO vers l'ONT, avec une <b>bobine amorce de 500 m</b>, à deux longueurs d'onde. Le réseau est : ODF → 2 km de G.652D → SRO 1:8 → drop de 80 m → PTO → ONT.</p>
+  <table>
+    <tr><th>N°</th><th class="num">Distance</th><th>Type</th><th class="num">Perte à 1310 nm</th><th class="num">Perte à 1550 nm</th></tr>
+    <tr><td>1</td><td class="num">500 m</td><td>Réflectif</td><td class="num">0,30 dB</td><td class="num">0,30 dB</td></tr>
+    <tr><td>2</td><td class="num">502 m</td><td>Réflectif</td><td class="num">0,55 dB</td><td class="num">0,55 dB</td></tr>
+    <tr><td>3</td><td class="num">2 502 m</td><td>Coupleur</td><td class="num">11,10 dB</td><td class="num">11,10 dB</td></tr>
+    <tr><td>4</td><td class="num">2 542 m</td><td>Non réflectif</td><td class="num">2,50 dB</td><td class="num">5,00 dB</td></tr>
+    <tr><td>5</td><td class="num">2 582 m</td><td>Réflectif</td><td class="num">0,55 dB</td><td class="num">0,55 dB</td></tr>
+    <tr><td>6</td><td class="num">2 584 m</td><td>Fin de fibre</td><td class="num">—</td><td class="num">—</td></tr>
+  </table>
+  <div class="side">
+  <div>
+  <ol>
+    <li>Associez chaque événement 1, 2, 3, 5 et 6 à un élément du réseau.</li>
+    <li>Quel événement est anormal ? À quelle distance réelle (depuis le départ du réseau) se trouve-t-il ? Sur quel câble ?</li>
+    <li>Quelle est la nature probable du défaut ? Justifiez avec les deux longueurs d'onde.</li>
+    <li>Quel instrument permettrait de le confirmer visuellement ? Que verrait-on ?</li>
+  </ol>
+  <div class="answer"></div><div class="answer"></div><div class="answer"></div><div class="answer"></div><div class="answer"></div><div class="answer"></div><div class="answer"></div><div class="answer"></div>
+  <p><b>Sur la capture :</b> retrouvez la courbe et la ligne de l'événement anormal. Attention, dans le simulateur la ligne n° 1 est le <b>départ de l'OTDR</b> (0 m) : les numéros sont décalés de 1 par rapport au tableau ci-dessus.</p>
+  </div>
+  <figure class="shot">
+    <img src="docs/captures/tp-complementaires/tp9-otdr-courbure-1550.jpg" alt="Écran OTDR d'OptiSim à 1550 nm : courbe, fin de trace 2,584 km, tableau des événements dont un événement non réflectif de 5,00 dB à 2542 m">
+    <figcaption>Le même tir dans OptiSim, à 1550 nm.</figcaption>
+  </figure>
+  </div>
+  <div class="foot"><span>Exercice 10</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h3>Exercice 11 — Diagnostic à partir des symptômes <small>Avancé · 20 min</small></h3>
+  <p>Valeurs normales du réseau de l'exercice 10 (1490 nm) : SRO 2,90 dBm · PTO −8,22 dBm · ONT −8,72 dBm. Pour chaque cas, indiquez la panne la plus probable et sa localisation.</p>
+  <table>
+    <tr><th style="width:50%">Symptômes</th><th>Diagnostic</th></tr>
+    <tr><td>a) ONT voyant LOS rouge. Photomètre : SRO 2,90 dBm, PTO : LOS.</td><td class="blank"></td></tr>
+    <tr><td>b) Photomètre : SRO 2,90 dBm, PTO −8,22 dBm, ONT −11,72 dBm.</td><td class="blank"></td></tr>
+    <tr><td>c) Photomètre : SRO 1,40 dBm, ONT −10,22 dBm. OTDR : événement non réflectif de 1,5 dB à 1 702 m, identique à 1310 et 1550 nm.</td><td class="blank"></td></tr>
+    <tr><td>d) Après une intervention au NRO, l'ODF reçoit 4,00 dBm mais le SRO ne reçoit plus rien. L'OTDR indique qu'aucun chemin optique continu n'arrive à l'ONT.</td><td class="blank"></td></tr>
+    <tr><td>e) Nouveau raccordement très proche du NRO, sans coupleur : ONT à +1,78 dBm, voyant d'alarme.</td><td class="blank"></td></tr>
+    <tr><td>f) Tous les ONT d'un immeuble sont en LOS ; le PMI ne reçoit plus de lumière.</td><td class="blank"></td></tr>
+  </table>
+  <div class="foot"><span>Exercice 11</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ PAGE SERVICES 1 ============================ -->
+<section class="sheet" id="exercices-services">
+  <h2>Exercices — Équipements actifs et services</h2>
+  <div class="box tip"><p><b>Valeurs à utiliser</b> (celles du simulateur) : GPON 2 488 Mbit/s descendants et 1 244 Mbit/s montants <b>partagés</b> entre les ONT actives d'un même port PON · profils : Internet 300 (300 / 300), Internet 1 Gbit/s (1 000 / 500), Duo (1 000 / 500), Triple play (1 000 / 700) · débit d'un abonné = le plus petit entre son profil et sa part du GPON (arrondie à l'entier inférieur) · Active Ethernet : port dédié de 1 000 Mbit/s.</p></div>
+
+  <h3>Exercice 12 — Adressage IP d'un réseau domestique <small>Intermédiaire · 20 min</small></h3>
+  <p>La Box a l'adresse <b>192.168.1.1</b> avec le masque <b>/24</b> (255.255.255.0). Son serveur DHCP distribue les adresses de <b>192.168.1.10</b> à <b>192.168.1.50</b>.</p>
+  <ol>
+    <li>Quelle est l'adresse du réseau local ? Son adresse de diffusion (broadcast) ? <span class="answer" style="display:inline-block;width:70mm;height:5mm"></span></li>
+    <li>Combien d'appareils la plage DHCP peut-elle servir ? <span class="answer" style="display:inline-block;width:40mm;height:5mm"></span></li>
+    <li>Pour chaque appareil configuré en <b>adressage statique</b>, indiquez si la configuration est correcte ; sinon, donnez l'erreur.</li>
+  </ol>
+  <table>
+    <tr><th style="width:6%"></th><th style="width:18%">Adresse IP</th><th style="width:9%">Masque</th><th style="width:18%">Passerelle</th><th>Correcte ? Sinon, quelle erreur ?</th></tr>
+    <tr><td>a</td><td>192.168.1.20</td><td>/24</td><td>192.168.1.1</td><td class="blank"></td></tr>
+    <tr><td>b</td><td>192.168.2.20</td><td>/24</td><td>192.168.1.1</td><td class="blank"></td></tr>
+    <tr><td>c</td><td>192.168.1.30</td><td>/24</td><td>192.168.1.254</td><td class="blank"></td></tr>
+    <tr><td>d</td><td>192.168.1.255</td><td>/24</td><td>192.168.1.1</td><td class="blank"></td></tr>
+    <tr><td>e</td><td>192.168.1.40</td><td>/25</td><td>192.168.1.1</td><td class="blank"></td></tr>
+    <tr><td>f</td><td>192.168.1.1</td><td>/24</td><td>192.168.1.1</td><td class="blank"></td></tr>
+  </table>
+  <ol start="4">
+    <li>Pourquoi est-il conseillé de choisir une adresse statique <b>en dehors</b> de la plage DHCP (par exemple 192.168.1.100) ?</li>
+  </ol>
+  <div class="answer"></div>
+  <ol start="5">
+    <li>Le serveur DHCP de la Box est désactivé et le PC est en adressage automatique. Le PC affiche l'adresse 169.254.37.12. Que signifie-t-elle ?</li>
+  </ol>
+  <div class="answer"></div>
+
+  <h3>Exercice 13 — Débit GPON partagé <small>Intermédiaire · 15 min</small></h3>
+  <p>Plusieurs abonnés Triple play (1 000 / 700 Mbit/s) sont raccordés au même port PON d'un OLT par un coupleur. Complétez le tableau.</p>
+  <table>
+    <tr><th>ONT actives sur le port</th><th class="num">Part GPON ↓</th><th class="num">Part GPON ↑</th><th class="num">Débit de l'abonné ↓</th><th class="num">Débit de l'abonné ↑</th></tr>
+    <tr><td>1</td><td class="blank"></td><td></td><td></td><td></td></tr>
+    <tr><td>2</td><td class="blank"></td><td></td><td></td><td></td></tr>
+    <tr><td>4</td><td class="blank"></td><td></td><td></td><td></td></tr>
+    <tr><td>8</td><td class="blank"></td><td></td><td></td><td></td></tr>
+    <tr><td>16</td><td class="blank"></td><td></td><td></td><td></td></tr>
+  </table>
+  <ol>
+    <li>À partir de combien d'ONT actives l'abonné n'obtient-il plus le débit descendant de son profil ?</li>
+    <li>Avec 8 ONT actives, quel débit obtiendrait un abonné « Internet 300 » ?</li>
+    <li>Une entreprise est raccordée en <b>Active Ethernet</b> (port SFP de 1 Gbit/s), profil Triple play. Son débit dépend-il du nombre d'autres abonnés ? Quel débit obtient-elle ?</li>
+  </ol>
+  <div class="answer"></div><div class="answer"></div><div class="answer"></div>
+  <div class="foot"><span>Exercices 12 et 13</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h3>Exercice 14 — Diagnostic d'un service <small>Avancé · 20 min</small></h3>
+  <p>Réseau de la Maison Dupont (TP 10) : routeur de collecte en <b>PPPoE</b> → OLT → ONT → Box → PC, décodeur TV et téléphone. VLAN 100 / 200 / 300. Une <b>panne de configuration cachée</b> a été injectée. Pour chaque cas, on donne les appareils en défaut et le diagnostic affiché par le simulateur. Indiquez la cause la plus probable et l'équipement à corriger.</p>
+  <table>
+    <tr><th style="width:56%">Appareils en défaut · étape · symptôme</th><th>Cause probable · équipement à corriger</th></tr>
+    <tr><td>a) Les 3 appareils · « Autorisation de l'ONT sur l'OLT » · <i>ONT ALCL1A2B3C4D détectée sur le port PON 1 mais refusée par OLT NRO.</i></td><td class="blank"></td></tr>
+    <tr><td>b) Décodeur TV seul · « VLAN TV » · <i>Le trafic TV n'aboutit pas : aucune réponse du réseau opérateur.</i></td><td class="blank"></td></tr>
+    <tr><td>c) Les 3 appareils · « Session WAN de la Box » · <i>Session PPPoE refusée par le réseau opérateur : le voyant Internet de la Box reste éteint.</i></td><td class="blank"></td></tr>
+    <tr><td>d) Les 3 appareils · « Session WAN de la Box » · <i>Aucune adresse WAN reçue : pas de réponse DHCP du réseau opérateur.</i></td><td class="blank"></td></tr>
+    <tr><td>e) Les 3 appareils · « Adresse IP de l'appareil (LAN) » · <i>L'appareil s'est attribué une adresse 169.254.x.x (APIPA).</i></td><td class="blank"></td></tr>
+    <tr><td>f) Décodeur TV et téléphone · « Service … dans le profil » · <i>Le service TV n'est pas fourni à cet abonné.</i></td><td class="blank"></td></tr>
+    <tr><td>g) Les 3 appareils · « Routeur de collecte » · <i>Aucune réponse du réseau opérateur pour le service Internet.</i></td><td class="blank"></td></tr>
+    <tr><td>h) PC seul · « Adresse IP de l'appareil (LAN) » · <i>L'appareil n'arrive pas à joindre sa passerelle : Internet est inaccessible.</i> Le PC est en adressage statique.</td><td class="blank"></td></tr>
+  </table>
+  <p class="q">Pour le cas a, l'ONT reçoit −15,97 dBm. Pourquoi est-on sûr que la panne n'est pas optique ?</p>
+  <div class="answer"></div><div class="answer"></div>
+  <div class="side">
+    <div>
+      <p><b>Sur la capture :</b> quelle est l'étape en défaut ? Lequel des cas ci-dessus correspond ? Quelles étapes sont validées ?</p>
+      <div class="answer"></div><div class="answer"></div><div class="answer"></div><div class="answer"></div>
+    </div>
+    <figure class="shot">
+      <img src="docs/captures/exercices/ex14-apipa.jpg" alt="Diagnostic du décodeur TV : toutes les étapes validées jusqu'à la session WAN, étape Adresse IP de l'appareil en défaut avec le symptôme APIPA" style="max-height:92mm">
+      <figcaption>Diagnostic du décodeur TV avec une panne cachée.</figcaption>
+    </figure>
+  </div>
+  <div class="foot"><span>Exercice 14</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+</body>
+</html>

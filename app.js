@@ -1,0 +1,1806 @@
+/* =====================================================================
+ * OptiSim FTTx Lab — app.js
+ * Auteur : Hassami COMPAORE
+ * Interface : canevas SVG (glisser-déposer, zoom, câblage), inspecteur,
+ * bilan optique, instruments (photomètre, OTDR, VFL), pannes, TP, docs.
+ * ===================================================================== */
+(function () {
+  'use strict';
+  const P = window.OptiPhysics;
+  const L = window.OptiLabs;
+  const SV = window.OptiServices;
+  const X = window.OptiExam;
+  /** Version enseignant (complète) ou élève (paquet sans corrigés ni outils de pannes). */
+  const TEACHER = !window.OptiEdition || window.OptiEdition.role !== 'eleve';
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const { CATALOG, CABLES, JOINTS, FAULTS, CATEGORIES, fmt, fmtLen, portsOf, deviceSize, portPos, buildingRect, mduLevels } = P;
+
+  /* ------------------------------------------------------------------ */
+  /*  Utilitaires DOM                                                     */
+  /* ------------------------------------------------------------------ */
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let uidN = 0;
+  const uid = p => `${p}-${Date.now().toString(36)}${(++uidN).toString(36)}`;
+  const dbm = v => (v === null || v === undefined || !isFinite(v)) ? '—' : (v > 0 ? '+' : '') + fmt(v) + ' dBm';
+  const STORE_KEY = 'optisim-fttx-autosave';
+  const EXAM_KEY = 'optisim-fttx-examen-' + (TEACHER ? 'enseignant' : 'eleve'); // examen en cours (propre à chaque version)
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* stockage indisponible */ } },
+    del(k) { try { localStorage.removeItem(k); } catch (e) { /* stockage indisponible */ } }
+  };
+
+  /* ------------------------------------------------------------------ */
+  /*  État global                                                         */
+  /* ------------------------------------------------------------------ */
+  const S = {
+    topo: { devices: [], links: [] },
+    view: { x: 60, y: 40, k: 1 },
+    mode: 'design',
+    tool: null,          // {kind:'cable', type} | {kind:'pm'|'otdr'|'vfl'}
+    cableStart: null,
+    sel: null,           // {kind:'dev'|'link', id}
+    engine: null,
+    services: null,     // résultat de OptiServices.analyze()
+    vfl: null,           // {devId, dir, result}
+    pm: null,            // {devId, key}
+    otdr: { devId: null, lambda: 1310, launch: 500, result: null, x0: null, x1: null, hover: null },
+    tab: 'props',
+    bilanPort: null,
+    lab: null,           // {id, checks:[]}
+    exam: null,          // sujet d'examen en cours (OptiExam) : topologie verrouillée
+    examStart: null,
+    journal: [],         // actions de l'élève pendant l'examen
+    undo: [], redo: [],
+    mouse: { x: 0, y: 0 }
+  };
+  const devById = id => S.topo.devices.find(d => d.id === id);
+  const linkById = id => S.topo.links.find(l => l.id === id);
+  const isContainer = d => d && CATALOG[d.type] && CATALOG[d.type].container;
+
+  /* ------------------------------------------------------------------ */
+  /*  Topologie : normalisation, mutations, annulation                    */
+  /* ------------------------------------------------------------------ */
+  function normalize(topo) {
+    const t = { devices: [], links: [] };
+    for (const d of (topo && topo.devices) || []) {
+      const def = CATALOG[d.type];
+      if (!def) continue;
+      const nd = { id: d.id || uid(d.type), type: d.type, x: +d.x || 0, y: +d.y || 0, props: Object.assign(clone(def.defaults), clone(d.props || {})) };
+      if (nd.type === 'ont' && !nd.props.sn) nd.props.sn = P.autoSerial(nd.id);
+      if (def.container) {
+        nd.w = +d.w || (d.type === 'bld_mdu' ? 620 : 360);
+        if (d.type === 'bld_mdu') nd.floorPx = +d.floorPx || 170; else nd.h = +d.h || 230;
+      }
+      if (d.fault && d.fault.type) nd.fault = Object.assign({}, d.fault);
+      if (d.cfgFault && SV.CFG_FAULTS[d.cfgFault.type]) nd.cfgFault = clone(d.cfgFault);
+      t.devices.push(nd);
+    }
+    const ids = new Set(t.devices.map(d => d.id));
+    for (const l of (topo && topo.links) || []) {
+      if (!CABLES[l.type] || !l.a || !l.b || !ids.has(l.a.dev) || !ids.has(l.b.dev)) continue;
+      t.links.push(Object.assign(JSON.parse(JSON.stringify(CABLES[l.type].defaults)), JSON.parse(JSON.stringify(l)), { id: l.id || uid('L') }));
+    }
+    sanitizeLinks(t);
+    return t;
+  }
+
+  /** Supprime les liens dont les ports n'existent plus ou sont en double. */
+  function sanitizeLinks(t) {
+    const used = new Set();
+    const before = t.links.length;
+    t.links = t.links.filter(l => {
+      const A = t.devices.find(d => d.id === l.a.dev), B = t.devices.find(d => d.id === l.b.dev);
+      if (!A || !B) return false;
+      const pa = portsOf(A).out[l.a.port], pb = portsOf(B).in[l.b.port];
+      const kind = CABLES[l.type].kind;
+      if (!pa || !pb || pa.kind !== kind || pb.kind !== kind) return false;
+      const ka = 'o' + l.a.dev + '#' + l.a.port, kb = 'i' + l.b.dev + '#' + l.b.port;
+      if (used.has(ka) || used.has(kb)) return false;
+      used.add(ka); used.add(kb);
+      return true;
+    });
+    return before - t.links.length;
+  }
+
+  function snapshot() { return JSON.stringify(S.topo); }
+  function pushUndo(snap) {
+    S.undo.push(snap);
+    if (S.undo.length > 80) S.undo.shift();
+    S.redo = [];
+  }
+  /** Applique une modification à la topologie avec historique. */
+  function mutate(fn, opts = {}) {
+    const snap = snapshot();
+    fn();
+    const removed = sanitizeLinks(S.topo);
+    if (removed) toast(`${removed} câble(s) retiré(s) : ports devenus indisponibles.`, 'warn');
+    if (snapshot() !== snap) pushUndo(snap);
+    refresh(opts);
+  }
+  function undo() {
+    if (!S.undo.length) return toast('Rien à annuler.');
+    S.redo.push(snapshot());
+    S.topo = JSON.parse(S.undo.pop());
+    validateSelection(); refresh();
+  }
+  function redo() {
+    if (!S.redo.length) return toast('Rien à rétablir.');
+    S.undo.push(snapshot());
+    S.topo = JSON.parse(S.redo.pop());
+    validateSelection(); refresh();
+  }
+  function validateSelection() {
+    if (S.sel && S.sel.kind === 'dev' && !devById(S.sel.id)) S.sel = null;
+    if (S.sel && S.sel.kind === 'link' && !linkById(S.sel.id)) S.sel = null;
+    if (S.pm && !devById(S.pm.devId)) S.pm = null;
+    if (S.vfl && !devById(S.vfl.devId)) S.vfl = null;
+    if (S.otdr.devId && !devById(S.otdr.devId)) { S.otdr.devId = null; S.otdr.result = null; }
+  }
+
+  function loadTopology(topo, opts = {}) {
+    if (opts.undoable !== false && S.topo.devices.length) pushUndo(snapshot());
+    S.topo = normalize(topo);
+    S.sel = null; S.pm = null; S.vfl = null; S.cableStart = null;
+    S.otdr.devId = null; S.otdr.result = null;
+    refresh();
+    requestAnimationFrame(fitView);
+  }
+
+  /** Analyse de la couche service ; symptômes seuls si une panne de configuration est cachée. */
+  function analyzeServices() {
+    return SV.analyze(S.topo, S.engine, { masked: S.topo.devices.some(d => d.cfgFault && d.cfgFault.hidden) });
+  }
+
+  /** Recalcule le moteur physique puis redessine tout. */
+  function refresh(opts = {}) {
+    P.assignParents(S.topo);
+    S.engine = new P.Engine(S.topo);
+    S.services = analyzeServices();
+    // Pannes de configuration corrigées par l'élève (valeurs d'origine ou correction équivalente)
+    const fixedNow = S.topo.devices.filter(d => d.cfgFault && SV.cfgFaultFixed(d, { topo: S.topo, analysis: S.services }));
+    if (fixedNow.length) {
+      fixedNow.forEach(d => { delete d.cfgFault; logJ('cfg-corrigee', `Configuration corrigée : ${d.props.name}`, { id: d.id }); });
+      S.services = analyzeServices();
+      if (!S.exam || S.exam.signaler) toast(fixedNow.length > 1 ? `${fixedNow.length} pannes de configuration corrigées. Bravo !` : `Panne de configuration corrigée sur « ${fixedNow[0].props.name} ». Bravo !`, 'ok');
+    }
+    if (S.vfl) S.vfl.result = P.vflInject(S.engine, S.vfl.devId, S.vfl.dir);
+    if (S.otdr.devId) runOtdr(false);
+    render();
+    if (!opts.keepInspector) renderInspector();
+    renderInstrument();
+    renderStatus();
+    store.set(STORE_KEY, snapshot());
+    saveExamState();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Rendu SVG                                                           */
+  /* ------------------------------------------------------------------ */
+  const svg = $('#canvas');
+  const vp = $('#viewport');
+  const layerB = $('#layerBuildings'), layerL = $('#layerLinks'), layerD = $('#layerDevices'), layerO = $('#layerOverlay');
+
+  function applyView() {
+    vp.setAttribute('transform', `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
+    renderStatus();
+  }
+
+  function render() {
+    applyView();
+    const blds = S.topo.devices.filter(isContainer);
+    const devs = S.topo.devices.filter(d => !isContainer(d));
+    layerB.innerHTML = blds.map(bldSVG).join('');
+    layerL.innerHTML = S.topo.links.map(linkSVG).join('');
+    layerD.innerHTML = devs.map(devSVG).join('');
+    renderDecorations();
+    renderRubber();
+    $('#emptyHint').hidden = S.topo.devices.length > 0;
+  }
+
+  function bldSVG(b) {
+    const r = buildingRect(b);
+    const sel = S.sel && S.sel.kind === 'dev' && S.sel.id === b.id;
+    const p = b.props;
+    let s = `<g class="bld ${sel ? 'selected' : ''} ${b.type}" data-dev="${b.id}">`;
+    s += `<rect class="bld-body" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="10"/>`;
+    s += `<path class="bld-head" d="M${r.x} ${r.y + 30}V${r.y + 10}Q${r.x} ${r.y} ${r.x + 10} ${r.y}H${r.x + r.w - 10}Q${r.x + r.w} ${r.y} ${r.x + r.w} ${r.y + 10}V${r.y + 30}Z"/>`;
+    s += `<path class="bld-icon" d="M${r.x + 10} ${r.y + 22}V${r.y + 14}L${r.x + 17} ${r.y + 8}L${r.x + 24} ${r.y + 14}V${r.y + 22}Z"/>`;
+    const sub = b.type === 'bld_mdu' ? `R+${p.floors}${p.basement ? ' + sous-sol' : ''} · ${esc(p.usage)} · ${fmt(p.floorHeight, 1)} m/étage` : `${esc(p.kind)} · gaine ${p.gaineLength} m`;
+    s += `<text class="bld-title" x="${r.x + 32}" y="${r.y + 20}">${esc(p.name)}</text>`;
+    s += `<text class="bld-sub" x="${r.x + r.w - 12}" y="${r.y + 20}" text-anchor="end">${sub}</text>`;
+    if (b.type === 'bld_mdu') {
+      const lv = mduLevels(b);
+      lv.forEach((l, i) => {
+        s += `<rect class="floor ${i % 2 ? 'alt' : ''} ${l.floor < 0 ? 'basement' : ''}" x="${r.x + 1}" y="${l.y0}" width="${r.w - 2}" height="${l.y1 - l.y0}"/>`;
+        s += `<line class="floor-sep" x1="${r.x}" x2="${r.x + r.w}" y1="${l.y1}" y2="${l.y1}"/>`;
+        s += `<text class="floor-label" x="${r.x + 8}" y="${l.y0 + 18}">${l.label}</text>`;
+      });
+      s += `<rect class="gaine" x="${r.x + 66}" y="${lv[0].y0 + 4}" width="30" height="${lv[lv.length - 1].y1 - lv[0].y0 - 8}" rx="4"/>`;
+      s += `<text class="gaine-label" transform="translate(${r.x + 85},${lv[lv.length - 1].y1 - 12}) rotate(-90)">GAINE TECHNIQUE · COLONNE MONTANTE</text>`;
+    } else {
+      const my = r.y + 30 + (r.h - 30) / 2;
+      s += `<rect class="pa" x="${r.x - 7}" y="${my - 11}" width="14" height="22" rx="3"/><text class="pa-label" x="${r.x}" y="${my + 4}" text-anchor="middle">PA</text>`;
+    }
+    s += `<path class="handle" data-handle="${b.id}" d="M${r.x + r.w - 4} ${r.y + r.h - 16}V${r.y + r.h - 4}H${r.x + r.w - 16}Z"/>`;
+    return s + '</g>';
+  }
+
+  function devSubline(d) {
+    const p = d.props, st = S.engine.deviceState(d.id);
+    switch (d.type) {
+      case 'olt': return `${p.txPower > 0 ? '+' : ''}${fmt(p.txPower, 1)} dBm · ${p.wavelength} nm`;
+      case 'switch': return p.role === 'coeur' ? `Tx ${fmt(p.txPower, 1)} dBm · ${p.wavelength}` : (st.power !== undefined ? `Rx ${dbm(st.power)}` : `Rx — · ${p.wavelength} nm`);
+      case 'odf': case 'odf_int': return `${p.ports} ports · ${p.connector}`;
+      case 'sro': case 'pmi': return p.splitter !== 'none' ? `Coupleur ${p.splitter}` : 'Brassage';
+      case 'splitter': return `PLC ${p.ratio}`;
+      case 'pbo_ext': case 'pbo_int': return `${p.capacity} FO${p.splitter !== 'none' ? ' · ' + p.splitter : p.raccord === 'epissure' ? ' · épissures' : ' · connect.'}`;
+      case 'splice': return p.spliceType === 'fusion' ? 'Fusion' : 'Mécanique';
+      case 'coupler': return p.connector;
+      case 'pto': return `${p.fibres === 'Quadri-fibre' ? '4 FO' : '1 FO'} · ${p.connector}`;
+      case 'ont': return st.power !== undefined ? dbm(st.power) : 'Rx —';
+      case 'collecte': return `${p.accessMode === 'pppoe' ? 'PPPoE' : 'DHCP'} · ${p.core ? 'cœur OK' : 'hors cœur'}`;
+      case 'switch_aon': return `Tx ${fmt(p.txPower, 1)} dBm · ${p.wavelength}`;
+      case 'router': { const w = S.services && S.services.boxes.get(d.id); return w ? (w.ok ? `WAN ${w.ip}` : 'WAN : échec') : `LAN ${p.lanIp}`; }
+      case 'pc': case 'tv': case 'phone': { const r = S.services && S.services.terminals.get(d.id); return r && r.evaluated ? `${r.label} ${r.ok ? '✓' : '✗'}` : ''; }
+      default: return '';
+    }
+  }
+
+  function devSVG(d) {
+    const def = CATALOG[d.type];
+    const s = deviceSize(d);
+    const st = S.engine.deviceState(d.id) || { code: 'nc' };
+    const sel = S.sel && S.sel.kind === 'dev' && S.sel.id === d.id;
+    const glow = S.vfl && S.vfl.result && S.vfl.result.glow.has(d.id);
+    const start = S.cableStart === d.id;
+    const ports = portsOf(d);
+    let g = `<g class="dev ${sel ? 'selected' : ''} ${glow ? 'vfl-glow' : ''} ${start ? 'cable-start' : ''}" data-dev="${d.id}" transform="translate(${d.x},${d.y})">`;
+    g += `<rect class="dev-shadow" x="2" y="3" width="${s.w}" height="${s.h}" rx="8"/>`;
+    g += `<rect class="dev-body" width="${s.w}" height="${s.h}" rx="8"/>`;
+    g += `<path d="M0 18V8Q0 0 8 0H${s.w - 8}Q${s.w} 0 ${s.w} 8V18Z" fill="${def.color}"/>`;
+    g += `<text class="dev-short" x="8" y="13">${def.short}</text>`;
+    const sub = devSubline(d);
+    const svc = S.services && S.services.terminals.get(d.id);
+    const subCode = svc && svc.evaluated ? (svc.ok ? 'ok' : 'los') : d.type === 'router' && S.services && S.services.boxes.get(d.id) ? (S.services.boxes.get(d.id).ok ? 'ok' : 'los') : st.code;
+    const cy = 18 + (s.h - 18) / 2 + (d.type === 'ont' ? -6 : 4);
+    g += `<text class="dev-sub st-${subCode}" x="${s.w / 2}" y="${cy}" text-anchor="middle">${esc(sub)}</text>`;
+    if (d.type === 'ont') {
+      const ledPon = st.code === 'ok' ? 'on-green' : st.code === 'weak' ? 'on-orange' : '';
+      const ledLos = (st.code === 'los' || st.code === 'sat') ? 'on-red blink' : '';
+      const lan = ports.out.some((p, k) => S.engine.outMap.has(d.id + '#' + k)) ? 'on-green' : '';
+      const leds = [['PWR', 'on-green'], ['PON', ledPon], ['LOS', ledLos], ['LAN', lan]];
+      leds.forEach(([lb, cls], i) => {
+        const x = 18 + i * 29;
+        g += `<circle class="led ${cls}" cx="${x}" cy="${s.h - 20}" r="4"/><text class="led-label" x="${x}" y="${s.h - 7}" text-anchor="middle">${lb}</text>`;
+      });
+    }
+    // ports
+    const drawPorts = (list, side) => {
+      const n = list.length; if (!n) return;
+      const sp = (s.h - 28) / n;
+      list.forEach((p, i) => {
+        const y = 20 + sp * (i + 0.5);
+        const x = side === 'in' ? 0 : s.w;
+        const used = side === 'in' ? S.engine.inMap.has(d.id + '#' + i) : S.engine.outMap.has(d.id + '#' + i);
+        const conn = d.props.connector;
+        const fill = p.kind === 'eth' ? '#facc15' : p.kind === 'up' ? '#d946ef' : conn ? P.connectorColor(conn) : '#94a3b8';
+        if (sp < 6) g += `<rect class="port tick ${used ? 'used' : ''}" x="${x - 3}" y="${y - Math.max(0.6, sp / 2 - 0.4)}" width="6" height="${Math.max(1.2, sp - 0.8)}" fill="${fill}"/>`;
+        else if (p.kind === 'eth') g += `<rect class="port ${used ? 'used' : ''}" x="${x - 4}" y="${y - 4}" width="8" height="8" rx="1.5" fill="${fill}"><title>${esc(p.label)}</title></rect>`;
+        else if (p.kind === 'up') g += `<rect class="port ${used ? 'used' : ''}" x="${x - 4}" y="${y - 4}" width="8" height="8" transform="rotate(45 ${x} ${y})" fill="${fill}"><title>${esc(p.label)} (10 GbE)</title></rect>`;
+        else g += `<circle class="port ${used ? 'used' : ''}" cx="${x}" cy="${y}" r="${Math.min(4.5, sp / 2.2)}" fill="${fill}"><title>${esc(p.label)}</title></circle>`;
+      });
+    };
+    drawPorts(ports.in, 'in'); drawPorts(ports.out, 'out');
+    // badge
+    g += `<circle class="badge st-${st.code}" cx="${s.w - 2}" cy="-2" r="6.5"><title>${esc(st.label || '')}</title></circle>`;
+    if (d.fault && d.fault.type && !d.fault.hidden) g += `<g class="fault-mark" transform="translate(-4,-6)"><circle r="9"/><text y="4" text-anchor="middle">!</text><title>${esc(FAULTS[d.fault.type].label)}</title></g>`;
+    if (d.cfgFault && !d.cfgFault.hidden) g += `<g class="fault-mark cfg" transform="translate(${d.fault && d.fault.type && !d.fault.hidden ? 16 : -4},-6)"><circle r="9"/><text y="4" text-anchor="middle">⚙</text><title>Panne de configuration : ${esc(SV.CFG_FAULTS[d.cfgFault.type].label)}</title></g>`;
+    g += `<text class="dev-name" x="${s.w / 2}" y="${s.h + 14}" text-anchor="middle">${esc(d.props.name)}</text>`;
+    return g + '</g>';
+  }
+
+  function linkGeom(l) {
+    const A = devById(l.a.dev), B = devById(l.b.dev);
+    if (!A || !B) return null;
+    const a = portPos(A, 'out', l.a.port), b = portPos(B, 'in', l.b.port);
+    if (b.x - a.x < 40) {
+      // tracé orthogonal (colonne montante, retours)
+      const sa = deviceSize(A), sb = deviceSize(B);
+      const ex = Math.max(a.x + 18, b.x + 18);
+      let my;
+      if (B.y + sb.h < A.y) my = B.y - 10;                 // B au-dessus
+      else if (B.y > A.y + sa.h) my = B.y - 10;            // B en dessous
+      else my = Math.min(A.y, B.y) - 16;
+      return `M${a.x} ${a.y}H${ex}V${my}H${b.x - 18}V${b.y}H${b.x}`;
+    }
+    const dx = Math.max(30, (b.x - a.x) * 0.45);
+    return `M${a.x} ${a.y}C${a.x + dx} ${a.y} ${b.x - dx} ${b.y} ${b.x} ${b.y}`;
+  }
+
+  function linkSVG(l) {
+    const d = linkGeom(l);
+    if (!d) return '';
+    const cable = CABLES[l.type];
+    const sel = S.sel && S.sel.kind === 'link' && S.sel.id === l.id;
+    const ls = S.engine.linkState(l);
+    const color = l.type === 'patch' ? P.connectorColor(l.connector) : cable.color;
+    let s = `<g class="link ${sel ? 'selected' : ''} t-${l.type}" data-link="${l.id}">`;
+    s += `<path class="link-hit" d="${d}"/>`;
+    s += `<path class="link-outline" d="${d}"/>`;
+    s += `<path class="link-base" d="${d}" stroke="${color}" data-path="${l.id}"/>`;
+    if (ls.kind === 'opt' && ls.lit) {
+      if (ls.litFrac >= 1) s += `<path class="flow st-${ls.code}" d="${d}"/>`;
+      else s += `<path class="flow-partial st-${ls.code}" d="${d}" pathLength="1000" stroke-dasharray="${ls.litFrac * 1000} 1000"/>`;
+    } else if (ls.kind === 'opt' && ls.code === 'los') s += `<path class="dead" d="${d}"/>`;
+    else if (ls.kind === 'eth' && ls.up) s += `<path class="flow eth" d="${d}"/>`;
+    else if (ls.kind === 'up' && ls.up) s += `<path class="flow up" d="${d}"/>`;
+    if (S.vfl && S.vfl.result && S.vfl.result.lit.has(l.id)) {
+      const r = S.vfl.result.lit.get(l.id);
+      s += `<path class="vfl-light" d="${d}" pathLength="1000" stroke-dasharray="0 ${r.from * 1000} ${(r.to - r.from) * 1000} 1000"/>`;
+    }
+    return s + '</g>';
+  }
+
+  /** Étiquettes de longueur, marqueurs de pannes et fuites VFL (placés via la géométrie réelle des chemins). */
+  function renderDecorations() {
+    let out = '';
+    const k = S.view.k;
+    const showLabels = k > 0.45;
+    for (const l of S.topo.links) {
+      const path = layerL.querySelector(`path[data-path="${l.id}"]`);
+      if (!path) continue;
+      const len = path.getTotalLength();
+      const li = S.engine.lengthInfo(l);
+      if (showLabels && l.type !== 'patch') {
+        const m = path.getPointAtLength(len / 2);
+        const txt = CABLES[l.type].kind !== 'opt' ? `${l.length} m` : fmtLen(li.total) + (li.auto ? ' ⇅' : '');
+        const w = txt.length * 6 + 10;
+        out += `<g class="len-label" transform="translate(${m.x},${m.y})"><rect x="${-w / 2}" y="-8" width="${w}" height="16" rx="8"/><text y="4" text-anchor="middle">${esc(txt)}</text></g>`;
+      }
+      if (l.fault && l.fault.type && !l.fault.hidden) {
+        const tot = li.total || 1;
+        const frac = FAULTS[l.fault.type].positional ? Math.min(1, (+l.fault.pos || 0) / tot) : 0.92;
+        const pt = path.getPointAtLength(len * frac);
+        out += `<g class="fault-mark" transform="translate(${pt.x},${pt.y})"><circle r="9"/><text y="4" text-anchor="middle">${l.fault.type === 'cut' ? '✕' : '!'}</text><title>${esc(FAULTS[l.fault.type].label)}</title></g>`;
+      }
+    }
+    if (S.vfl && S.vfl.result) {
+      for (const lk of S.vfl.result.leaks) {
+        if (lk.linkId) {
+          const path = layerL.querySelector(`path[data-path="${lk.linkId}"]`);
+          if (!path) continue;
+          const pt = path.getPointAtLength(path.getTotalLength() * lk.frac);
+          out += `<g class="vfl-leak" transform="translate(${pt.x},${pt.y})"><circle class="halo" r="16"/><circle r="5"/></g>`;
+        } else if (lk.devId) {
+          const D = devById(lk.devId); if (!D) continue;
+          const sz = deviceSize(D);
+          out += `<g class="vfl-leak" transform="translate(${D.x + sz.w / 2},${D.y + sz.h / 2})"><circle class="halo" r="22"/></g>`;
+        }
+      }
+    }
+    layerO.innerHTML = out + '<g id="rubber"></g>';
+  }
+
+  function renderRubber() {
+    const g = $('#rubber');
+    if (!g) return;
+    if (S.tool && S.tool.kind === 'cable' && S.cableStart) {
+      const A = devById(S.cableStart);
+      if (!A) { g.innerHTML = ''; return; }
+      const s = deviceSize(A);
+      g.innerHTML = `<line class="rubber" x1="${A.x + s.w / 2}" y1="${A.y + s.h / 2}" x2="${S.mouse.x}" y2="${S.mouse.y}" stroke="${CABLES[S.tool.type].color}"/>`;
+    } else g.innerHTML = '';
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Boîte à outils                                                      */
+  /* ------------------------------------------------------------------ */
+  const PALETTE = [
+    { title: 'Actifs & Répartition (NRO)', items: ['collecte', 'olt', 'switch_aon', 'switch', 'odf'] },
+    { title: 'Passifs extérieurs (ODN)', items: ['sro', 'pbo_ext', 'splitter', 'splice', 'coupler'] },
+    { title: 'Bâtiments & équipements intérieurs', items: ['bld_simple', 'bld_mdu', 'odf_int', 'pmi', 'pbo_int'] },
+    { title: 'Câbles & jarretières', cables: ['smf', 'drop', 'lszh', 'riser', 'om3', 'om4', 'patch', 'cat6', 'uplink'] },
+    { title: 'Abonnés', items: ['pto', 'ont', 'router', 'pc', 'phone', 'tv'] },
+    { title: 'Outils de mesure', tools: [['pm', 'Photomètre', 'Puissance reçue (dBm) et statut'], ['otdr', 'Réflectomètre OTDR', 'Courbe de rétrodiffusion'], ['vfl', 'Stylo optique (VFL)', 'Lumière rouge visible']] }
+  ];
+  const TOOL_ICONS = {
+    pm: '<rect x="6" y="3" width="22" height="20" rx="3" fill="#334155"/><rect x="9" y="6" width="16" height="7" rx="1" fill="#86efac"/><circle cx="17" cy="18" r="2.5" fill="#94a3b8"/>',
+    otdr: '<rect x="3" y="3" width="28" height="20" rx="3" fill="#334155"/><path d="M6 8 L12 10 L13 7 L14 12 L22 15 L23 13 L24 19 L28 19" stroke="#38bdf8" stroke-width="1.6" fill="none"/>',
+    vfl: '<rect x="4" y="10" width="20" height="6" rx="3" fill="#475569"/><rect x="24" y="11" width="5" height="4" fill="#94a3b8"/><circle cx="31" cy="13" r="2.5" fill="#ef4444"/>'
+  };
+
+  function buildPalette() {
+    let h = '';
+    PALETTE.forEach((sec, si) => {
+      h += `<details class="pal-sec" ${si < 6 ? 'open' : ''}><summary>${sec.title}</summary><div class="pal-grid">`;
+      (sec.items || []).forEach(t => {
+        const def = CATALOG[t];
+        h += `<div class="pal-item" draggable="true" data-type="${t}" title="${esc(def.desc)}" data-search="${esc((def.label + ' ' + def.short).toLowerCase())}">
+          <svg viewBox="0 0 34 26" width="34" height="26">${def.container ? `<rect x="2" y="3" width="30" height="21" rx="3" fill="none" stroke="${def.color}" stroke-width="2"/><rect x="2" y="3" width="30" height="6" rx="2" fill="${def.color}"/>${t === 'bld_mdu' ? '<path d="M3 14H31M3 19H31" stroke="' + def.color + '" stroke-width="1"/>' : ''}` : `<rect x="2" y="4" width="30" height="19" rx="3" fill="var(--dev-body)" stroke="var(--dev-stroke)"/><rect x="2" y="4" width="30" height="6" rx="2" fill="${def.color}"/>`}<text x="17" y="${def.container ? 20 : 20}" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor">${def.short}</text></svg>
+          <span>${esc(def.label)}</span></div>`;
+      });
+      (sec.cables || []).forEach(t => {
+        const c = CABLES[t];
+        h += `<div class="pal-item tool" data-cable="${t}" title="${esc(c.help)}" data-search="${esc(c.label.toLowerCase())}">
+          <svg viewBox="0 0 34 26" width="34" height="26"><path d="M3 20 C14 20 18 6 31 6" stroke="#0005" stroke-width="5" fill="none"/><path d="M3 20 C14 20 18 6 31 6" stroke="${t === 'patch' ? '#16a34a' : c.color}" stroke-width="3" fill="none" ${t === 'cat6' ? 'stroke-dasharray="4 2"' : ''}/></svg>
+          <span>${esc(c.label)}</span></div>`;
+      });
+      (sec.tools || []).forEach(([t, lb, hint]) => {
+        h += `<div class="pal-item tool" data-tool="${t}" title="${esc(hint)}" data-search="${esc(lb.toLowerCase())}"><svg viewBox="0 0 34 26" width="34" height="26">${TOOL_ICONS[t]}</svg><span>${lb}</span></div>`;
+      });
+      h += '</div></details>';
+    });
+    $('#paletteBody').innerHTML = h;
+
+    $$('.pal-item[data-type]').forEach(el => {
+      el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', el.dataset.type); e.dataTransfer.effectAllowed = 'copy'; });
+      el.addEventListener('click', () => {
+        const r = svg.getBoundingClientRect();
+        addDevice(el.dataset.type, toWorld(r.left + r.width / 2, r.top + r.height / 2), true);
+      });
+    });
+    $$('.pal-item[data-cable]').forEach(el => el.addEventListener('click', () => { if (!locked()) setTool({ kind: 'cable', type: el.dataset.cable }); }));
+    $$('.pal-item[data-tool]').forEach(el => el.addEventListener('click', () => {
+      if (S.mode !== 'test') setMode('test');
+      setTool({ kind: el.dataset.tool });
+    }));
+    $('#paletteSearch').addEventListener('input', e => {
+      const q = e.target.value.trim().toLowerCase();
+      $$('.pal-item').forEach(it => { it.hidden = q && !it.dataset.search.includes(q); });
+      $$('.pal-sec').forEach(sec => { if (q) sec.open = true; });
+    });
+  }
+
+  function setTool(tool) {
+    const same = S.tool && tool && S.tool.kind === tool.kind && S.tool.type === tool.type;
+    S.tool = same ? null : tool;
+    S.cableStart = null;
+    $$('.pal-item.tool').forEach(el => el.classList.toggle('active', !!S.tool && (el.dataset.cable === S.tool.type && S.tool.kind === 'cable' || el.dataset.tool === S.tool.kind)));
+    svg.classList.toggle('tool-active', !!S.tool);
+    renderRubber();
+    render();
+    renderStatus();
+  }
+
+  function addDevice(type, pt, centered) {
+    if (locked()) return;
+    const def = CATALOG[type];
+    const d = { id: uid(type), type, x: 0, y: 0, props: clone(def.defaults) };
+    if (type === 'ont') d.props.sn = P.autoSerial(d.id);
+    if (def.container) { d.w = type === 'bld_mdu' ? 620 : 380; if (type === 'bld_mdu') d.floorPx = 170; else d.h = 240; }
+    // nom unique
+    const same = S.topo.devices.filter(x => x.type === type).length;
+    if (same) d.props.name = `${def.defaults.name} ${same + 1}`;
+    const sz = deviceSize(d);
+    d.x = Math.round((pt.x - (centered || !def.container ? sz.w / 2 : 0)) / 10) * 10;
+    d.y = Math.round((pt.y - (centered || !def.container ? sz.h / 2 : 0)) / 10) * 10;
+    mutate(() => S.topo.devices.push(d));
+    select({ kind: 'dev', id: d.id });
+    const dd = devById(d.id);
+    if (dd.parent) toast(`${def.short} placé dans « ${devById(dd.parent).props.name} »${dd.floor !== undefined && devById(dd.parent).type === 'bld_mdu' ? ' — ' + P.floorLabel(dd.floor) : ''}.`);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Interactions sur le canevas                                         */
+  /* ------------------------------------------------------------------ */
+  function toWorld(cx, cy) {
+    const r = svg.getBoundingClientRect();
+    return { x: (cx - r.left - S.view.x) / S.view.k, y: (cy - r.top - S.view.y) / S.view.k };
+  }
+
+  let drag = null;
+
+  svg.addEventListener('pointerdown', e => {
+    if (e.button === 2) return;
+    const w = toWorld(e.clientX, e.clientY);
+    const handle = e.target.closest('[data-handle]');
+    const devEl = e.target.closest('[data-dev]');
+    const linkEl = e.target.closest('[data-link]');
+
+    if (handle && S.mode === 'design' && !S.exam) {
+      const b = devById(handle.dataset.handle);
+      drag = { kind: 'resize', id: b.id, start: w, w0: b.w, h0: b.h, fp0: b.floorPx, snap: snapshot(), moved: false };
+      svg.setPointerCapture(e.pointerId); return;
+    }
+    if (devEl) {
+      const d = devById(devEl.dataset.dev);
+      if (S.tool && !isContainer(d)) { toolClick(d); return; }
+      if (S.tool && S.tool.kind === 'cable' && isContainer(d)) { /* clic dans un bâtiment : ignoré */ }
+      select({ kind: 'dev', id: d.id });
+      if (S.tool && S.tool.kind === 'cable') return;
+      if (S.exam) return; // examen : équipements non déplaçables
+      const children = isContainer(d) ? S.topo.devices.filter(x => x.parent === d.id) : [];
+      drag = { kind: 'move', id: d.id, start: w, orig: [d, ...children].map(x => ({ d: x, x: x.x, y: x.y })), snap: snapshot(), moved: false };
+      svg.setPointerCapture(e.pointerId); return;
+    }
+    if (linkEl && !S.tool) { select({ kind: 'link', id: linkEl.dataset.link }); return; }
+    drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: S.view.x, vy: S.view.y, moved: false };
+    svg.setPointerCapture(e.pointerId);
+    svg.classList.add('panning');
+  });
+
+  svg.addEventListener('pointermove', e => {
+    const w = toWorld(e.clientX, e.clientY);
+    S.mouse = w;
+    if (S.cableStart) renderRubber();
+    if (!drag) return;
+    if (drag.kind === 'pan') {
+      const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      S.view.x = drag.vx + dx; S.view.y = drag.vy + dy;
+      applyView();
+    } else if (drag.kind === 'move') {
+      const dx = w.x - drag.start.x, dy = w.y - drag.start.y;
+      if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
+      if (!drag.moved) return;
+      for (const o of drag.orig) { o.d.x = Math.round((o.x + dx) / 10) * 10; o.d.y = Math.round((o.y + dy) / 10) * 10; }
+      render();
+    } else if (drag.kind === 'resize') {
+      const b = devById(drag.id);
+      const dx = w.x - drag.start.x, dy = w.y - drag.start.y;
+      drag.moved = true;
+      b.w = Math.max(240, Math.round((drag.w0 + dx) / 10) * 10);
+      if (b.type === 'bld_mdu') {
+        const n = mduLevels(b).length;
+        b.floorPx = Math.max(110, Math.round((drag.fp0 + dy / n) / 5) * 5);
+      } else b.h = Math.max(140, Math.round((drag.h0 + dy) / 10) * 10);
+      render();
+    }
+  });
+
+  svg.addEventListener('pointerup', () => {
+    if (!drag) return;
+    const dr = drag; drag = null;
+    svg.classList.remove('panning');
+    if (dr.kind === 'pan') {
+      if (!dr.moved) { if (S.tool && S.tool.kind === 'cable' && S.cableStart) { S.cableStart = null; renderRubber(); render(); } else select(null); }
+      return;
+    }
+    if (dr.moved) {
+      pushUndo(dr.snap);
+      refresh();
+    }
+  });
+
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    const f = Math.exp(-e.deltaY * 0.0015);
+    zoomAt(e.clientX, e.clientY, f);
+  }, { passive: false });
+
+  function zoomAt(cx, cy, f) {
+    const r = svg.getBoundingClientRect();
+    const k = Math.min(3, Math.max(0.2, S.view.k * f));
+    const px = cx - r.left, py = cy - r.top;
+    S.view.x = px - (px - S.view.x) * (k / S.view.k);
+    S.view.y = py - (py - S.view.y) * (k / S.view.k);
+    S.view.k = k;
+    applyView();
+    renderDecorations(); renderRubber();
+  }
+
+  function fitView() {
+    if (!S.topo.devices.length) { S.view = { x: 60, y: 40, k: 1 }; applyView(); return; }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const d of S.topo.devices) {
+      const s = deviceSize(d);
+      x0 = Math.min(x0, d.x); y0 = Math.min(y0, d.y); x1 = Math.max(x1, d.x + s.w); y1 = Math.max(y1, d.y + s.h + 18);
+    }
+    const r = svg.getBoundingClientRect();
+    const pad = 40;
+    const tp = $('#tpPanel');
+    const left = !tp.hidden && r.width > 900 ? (tp.classList.contains('collapsed') ? 0 : tp.offsetWidth + 12) : 0;
+    const k = Math.min(1.4, Math.max(0.2, Math.min((r.width - left - pad * 2) / (x1 - x0), (r.height - pad * 2) / (y1 - y0))));
+    S.view.k = k;
+    S.view.x = left + (r.width - left - (x1 - x0) * k) / 2 - x0 * k;
+    S.view.y = (r.height - (y1 - y0) * k) / 2 - y0 * k;
+    applyView(); renderDecorations();
+  }
+
+  // Dépôt depuis la boîte à outils
+  svg.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  svg.addEventListener('drop', e => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('text/plain');
+    if (!CATALOG[type]) return;
+    const w = toWorld(e.clientX, e.clientY);
+    addDevice(type, w, false);
+  });
+
+  function select(sel) {
+    S.sel = sel;
+    lastDiag = null;
+    S.bilanPort = null;
+    if (sel && sel.kind === 'dev' && S.tab === 'otdr' && !isContainer(devById(sel.id))) { /* garde l'OTDR */ }
+    render();
+    renderInspector();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Outils : câblage et instruments                                     */
+  /* ------------------------------------------------------------------ */
+  function toolClick(d) {
+    const t = S.tool;
+    if (t.kind === 'cable') return cableClick(d);
+    if (t.kind !== 'cable') logJ(t.kind === 'pm' ? 'mesure' : t.kind, `${t.kind === 'pm' ? 'Photomètre sur' : t.kind === 'vfl' ? 'VFL injecté sur' : 'OTDR vers'} ${d.props.name}${t.kind === 'otdr' ? ` (${S.otdr.lambda} nm)` : ''}`, { id: d.id });
+    if (t.kind === 'pm') { S.pm = { devId: d.id, key: null }; S.sel = { kind: 'dev', id: d.id }; render(); renderInspector(); renderInstrument(); return; }
+    if (t.kind === 'vfl') { S.vfl = { devId: d.id, dir: (S.vfl && S.vfl.dir) || 'down' }; S.vfl.result = P.vflInject(S.engine, d.id, S.vfl.dir); render(); renderInstrument(); return; }
+    if (t.kind === 'otdr') { S.otdr.devId = d.id; S.otdr.x0 = S.otdr.x1 = null; S.sel = { kind: 'dev', id: d.id }; runOtdr(true); S.tab = 'otdr'; render(); renderInspector(); return; }
+  }
+
+  function cableClick(d) {
+    const type = S.tool.type;
+    if (!S.cableStart) {
+      S.cableStart = d.id; render(); renderStatus();
+      return;
+    }
+    if (S.cableStart === d.id) { S.cableStart = null; render(); renderStatus(); return; }
+    const A = devById(S.cableStart);
+    const alloc = allocatePorts(A, d, type);
+    if (alloc.error) { toast(alloc.error, 'err'); return; }
+    S.cableStart = null;
+    openCableDialog(type, alloc);
+  }
+
+  function freeOut(D, kind) {
+    const ports = portsOf(D).out;
+    const def = CATALOG[D.type];
+    const free = ports.map((p, k) => k).filter(k => ports[k].kind === kind && !S.engine.outMap.has(D.id + '#' + k));
+    if (def.mapping === 'port') {
+      const fed = free.filter(k => S.engine.inMap.has(D.id + '#' + k));
+      if (fed.length) return fed[0];
+    }
+    return free.length ? free[0] : -1;
+  }
+  function freeIn(D, kind) {
+    const ports = portsOf(D).in;
+    const i = ports.findIndex((p, k) => p.kind === kind && !S.engine.inMap.has(D.id + '#' + k));
+    return i;
+  }
+  function allocatePorts(A, B, type) {
+    const kind = CABLES[type].kind;
+    const tryDir = (X, Y) => {
+      const o = freeOut(X, kind), i = freeIn(Y, kind);
+      return o >= 0 && i >= 0 ? { a: { dev: X.id, port: o }, b: { dev: Y.id, port: i } } : null;
+    };
+    const r = tryDir(A, B) || tryDir(B, A);
+    if (r) return r;
+    const hasKind = D => portsOf(D).in.concat(portsOf(D).out).some(p => p.kind === kind);
+    if (!hasKind(A) || !hasKind(B)) return { error: kind === 'up' ? 'Le lien de collecte 10 GbE relie un port 10G du routeur de collecte à l\'uplink d\'un OLT ou d\'un switch AON.' : kind === 'eth' ? 'Le câble Cat6 relie un port RJ45 (ONT, switch, routeur) à un terminal (PC, téléphone, décodeur).' : 'Ce câble optique ne peut pas être raccordé à un équipement sans port optique (utilisez un câble Cat6).' };
+    return { error: `Aucun couple de ports libres compatible entre « ${A.props.name} » et « ${B.props.name} » (sortie libre côté amont / entrée libre côté aval).` };
+  }
+
+  function openCableDialog(type, alloc) {
+    const c = CABLES[type];
+    const A = devById(alloc.a.dev), B = devById(alloc.b.dev);
+    const def = Object.assign({}, c.defaults);
+    // Colonne montante qui repart d'un PBO d'étage : la fibre traverse sans être coupée
+    if (type === 'riser' && A.type === 'pbo_int') def.jointA = 'none';
+    const jointOpts = sel => Object.entries(JOINTS).map(([k, j]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(j.label)}</option>`).join('');
+    const opt = c.kind === 'opt';
+    const lenM = def.length;
+    const useKm = lenM >= 1000;
+    let body = `<p class="muted">${esc(c.help)}</p>
+      <div class="cable-ends"><div><small>Amont (sortie)</small><b>${esc(A.props.name)}</b><span>${esc(portsOf(A).out[alloc.a.port].label)}</span></div><div class="arrow">→</div><div><small>Aval (entrée)</small><b>${esc(B.props.name)}</b><span>${esc(portsOf(B).in[alloc.b.port].label)}</span></div></div>
+      <div class="form-grid">
+        <label>Longueur<div class="inline"><input type="number" id="cdLen" min="0" step="any" value="${useKm ? lenM / 1000 : lenM}"><select id="cdUnit"><option value="m" ${useKm ? '' : 'selected'}>m</option><option value="km" ${useKm ? 'selected' : ''}>km</option></select></div></label>`;
+    if (type === 'riser' || type === 'lszh') body += `<label class="check"><input type="checkbox" id="cdAuto" ${def.autoLength ? 'checked' : ''}> Longueur auto (écart d'étages × hauteur d'étage)</label>`;
+    if (opt) body += `<label>Raccordement extrémité amont<select id="cdJA">${jointOpts(def.jointA)}</select></label><label>Raccordement extrémité aval<select id="cdJB">${jointOpts(def.jointB)}</select></label>`;
+    if (type === 'patch') body += `<label>Connecteurs<select id="cdConn">${P.CONNECTORS.map(x => `<option ${x === (A.props.connector || B.props.connector || 'SC/APC') ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label>Type<select id="cdDuplex"><option>Simplex</option><option>Duplex</option></select></label>`;
+    if (opt && type !== 'patch') body += `<label>Capacité du câble<select id="cdFibers">${[1, 2, 4, 6, 12, 24, 48, 72, 144].map(n => `<option ${n === def.fibers ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+    body += '</div>';
+    if (B.parent && devById(B.parent).type === 'bld_simple' && A.parent !== B.parent && opt && type !== 'patch') body += `<p class="tip">Ce câble entre dans « ${esc(devById(B.parent).props.name)} » : la gaine intérieure (${devById(B.parent).props.gaineLength} m) sera ajoutée automatiquement.</p>`;
+    openModal(`Nouveau câble : ${c.label}`, body, [
+      { label: 'Annuler', action: closeModal },
+      { label: 'Créer le câble', primary: true, action: () => {
+        let len = parseFloat($('#cdLen').value.replace(',', '.'));
+        if (!isFinite(len) || len < 0) { toast('Longueur invalide.', 'err'); return; }
+        if ($('#cdUnit').value === 'km') len *= 1000;
+        const link = Object.assign(JSON.parse(JSON.stringify(def)), { id: uid('L'), type, a: alloc.a, b: alloc.b, length: Math.round(len * 1000) / 1000 });
+        if ($('#cdAuto')) link.autoLength = $('#cdAuto').checked;
+        if ($('#cdJA')) { link.jointA = $('#cdJA').value; link.jointB = $('#cdJB').value; }
+        if ($('#cdConn')) { link.connector = $('#cdConn').value; link.duplex = $('#cdDuplex').value; }
+        if ($('#cdFibers')) link.fibers = +$('#cdFibers').value;
+        closeModal();
+        mutate(() => S.topo.links.push(link));
+        select({ kind: 'link', id: link.id });
+        toast(`Câble créé : ${A.props.name} → ${B.props.name}`, 'ok');
+      } }
+    ]);
+    setTimeout(() => { const i = $('#cdLen'); if (i) { i.focus(); i.select(); } }, 30);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Modes                                                               */
+  /* ------------------------------------------------------------------ */
+  const MODE_LABELS = { design: 'Conception', test: 'Mesure / Test', fault: 'Simulation de pannes' };
+  function setMode(m) {
+    S.mode = m;
+    document.body.className = document.body.className.replace(/mode-\w+/, 'mode-' + m);
+    $$('#modeSwitch button').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+    if (m !== 'test') { if (S.tool && S.tool.kind !== 'cable') setTool(null); S.vfl = null; S.pm = null; }
+    if (m !== 'design' && S.tool && S.tool.kind === 'cable') setTool(null);
+    render(); renderInspector(); renderInstrument(); renderStatus();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Inspecteur                                                          */
+  /* ------------------------------------------------------------------ */
+  const insp = $('#inspectorBody');
+
+  function renderInspector() {
+    $$('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
+    if (S.tab === 'bilan') insp.innerHTML = bilanHTML();
+    else if (S.tab === 'otdr') { insp.innerHTML = otdrHTML(); drawOtdr(); }
+    else if (S.tab === 'config') {
+      insp.innerHTML = configHTML();
+      const d = S.sel && S.sel.kind === 'dev' ? devById(S.sel.id) : null;
+      if (d && CATALOG[d.type].config) logJ('diag', `Diagnostic consulté : ${d.props.name}`, { id: d.id, term: !!SV.TERMINAL_SERVICE[d.type] || d.type === 'router' });
+    }
+    else insp.innerHTML = propsHTML();
+    bindInspector();
+  }
+
+  function fieldHTML(f, val, scope) {
+    const id = `f-${scope}-${f.key}`;
+    const unit = f.unit ? `<span class="unit">${f.unit}</span>` : '';
+    if (f.type === 'select') {
+      const opts = f.options.map(o => Array.isArray(o) ? o : [o, o === 'none' ? 'Aucun' : o]).map(([v, lb]) => `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(lb)}</option>`).join('');
+      return `<label for="${id}">${esc(f.label)}<div class="inline"><select id="${id}" data-k="${f.key}" data-scope="${scope}">${opts}</select>${unit}</div></label>`;
+    }
+    if (f.type === 'checkbox') return `<label class="check"><input type="checkbox" id="${id}" data-k="${f.key}" data-scope="${scope}" ${val ? 'checked' : ''}> ${esc(f.label)}</label>`;
+    if (f.type === 'number') return `<label for="${id}">${esc(f.label)}<div class="inline"><input type="number" id="${id}" data-k="${f.key}" data-scope="${scope}" value="${esc(val)}" ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} step="${f.step || 'any'}">${unit}</div></label>`;
+    return `<label for="${id}">${esc(f.label)}<input type="text" id="${id}" data-k="${f.key}" data-scope="${scope}" value="${esc(val)}"></label>`;
+  }
+
+  function statusPill(st) {
+    if (!st) return '';
+    return `<span class="pill st-${st.code}">${esc(st.label)}</span>`;
+  }
+
+  function faultEditor(obj, isLink) {
+    const f = obj.fault || {};
+    const allowed = Object.entries(FAULTS).filter(([, v]) => isLink ? v.link : v.device);
+    if (S.mode !== 'fault') {
+      if (f.type && !f.hidden) return `<div class="alert err"><b>Panne active :</b> ${esc(FAULTS[f.type].label)}${isLink && FAULTS[f.type].positional ? ` à ${fmt(f.pos, 1)} m de l'extrémité amont` : ''}. <small>(Mode « ${MODE_LABELS.fault} » pour ${TEACHER ? 'réparer' : 'intervenir'})</small></div>`;
+      return '';
+    }
+    if (!TEACHER || S.exam) return interventionHTML(obj, isLink);
+    
+  }
+
+  /** Intervention de l'élève : remet l'élément en état sans dire s'il était en panne. */
+  function interventionHTML(obj, isLink) {
+    if (!isLink && isContainer(obj)) return '';
+    const txt = isLink ? 'Reprendre ce câble : refaire les épissures, nettoyer ou remplacer les connecteurs, corriger le cheminement (rayon de courbure).' : 'Nettoyer les connecteurs ou remplacer cet équipement.';
+    return `<div class="section fault-box"><h4>Intervention</h4><p class="small">${txt} Intervenez seulement après avoir localisé le défaut par la mesure${S.exam ? ' : chaque intervention inutile est pénalisée' : ''}.</p><div class="row"><button class="btn ok" data-act="intervene">${isLink ? 'Reprendre le câble' : 'Nettoyer / remplacer'}</button></div>${TEACHER && S.exam ? '<p class="muted small">Examen en cours : l\'injection de pannes est désactivée (vue élève).</p>' : ''}</div>`;
+  }
+
+  function propsHTML() {
+    if (!S.sel) return overviewHTML();
+    if (S.sel.kind === 'link') return linkPropsHTML(linkById(S.sel.id));
+    const d = devById(S.sel.id);
+    if (!d) return overviewHTML();
+    const def = CATALOG[d.type];
+    let h = `<div class="insp-head"><span class="chip" style="background:${def.color}">${def.short}</span><div><b>${esc(d.props.name)}</b><small>${esc(def.label)}</small></div></div>`;
+    h += `<p class="muted">${esc(def.desc)}</p>`;
+    if (def.container) {
+      h += `<div class="section"><h4>Paramètres du bâtiment</h4><div class="form-grid">${def.props.map(f => fieldHTML(f, d.props[f.key], 'dev')).join('')}</div></div>`;
+      const kids = S.topo.devices.filter(x => x.parent === d.id);
+      const r = buildingRect(d);
+      h += `<div class="section"><h4>Informations</h4><table class="kv">`;
+      if (d.type === 'bld_mdu') {
+        const lv = mduLevels(d);
+        h += `<tr><td>Niveaux</td><td>${lv.length} (${lv[lv.length - 1].label} → ${lv[0].label})</td></tr><tr><td>Hauteur totale</td><td>${fmt(lv.length * d.props.floorHeight, 1)} m</td></tr>`;
+        lv.forEach(l => { const n = kids.filter(k => k.floor === l.floor).length; if (n) h += `<tr><td>${l.label}</td><td>${n} équipement(s)</td></tr>`; });
+      } else h += `<tr><td>Gaine intérieure</td><td>${d.props.gaineLength} m (ajoutée aux câbles entrants)</td></tr>`;
+      h += `<tr><td>Équipements</td><td>${kids.length}</td></tr><tr><td>Taille</td><td>${Math.round(r.w)} × ${Math.round(r.h)} px</td></tr></table></div>`;
+      h += `<div class="row"><button class="btn danger" data-act="delete">Supprimer le bâtiment</button></div>`;
+      return h;
+    }
+    const st = S.engine.deviceState(d.id);
+    h += `<div class="section status-line">${statusPill(st)}${st.power !== undefined ? `<b class="big">${dbm(st.power)}</b>` : ''}</div>`;
+    if (d.parent) { const B = devById(d.parent); h += `<p class="loc">📍 ${esc(B.props.name)}${B.type === 'bld_mdu' ? ' — ' + P.floorLabel(d.floor) : ''}</p>`; }
+    h += faultEditor(d, false);
+    if (S.mode === 'fault' && def.config) h += `<p class="muted small">${TEACHER && !S.exam ? 'Pannes de configuration (VLAN, autorisation, PPPoE, DHCP…) : onglet « Configuration ».' : 'Une erreur de configuration (VLAN, autorisation, PPPoE, DHCP…) se corrige dans l\'onglet « Configuration ».'}</p>`;
+    h += `<div class="section"><h4>Paramètres</h4><div class="form-grid">${def.props.map(f => fieldHTML(f, d.props[f.key], 'dev')).join('')}</div></div>`;
+    // ports
+    const ports = portsOf(d);
+    const rows = [];
+    const portRow = (p, k, side) => {
+      const link = side === 'in' ? S.engine.inMap.get(d.id + '#' + k) : S.engine.outMap.get(d.id + '#' + k);
+      let peer = '<span class="muted">libre</span>', pw = '';
+      if (link) {
+        const o = devById(side === 'in' ? link.a.dev : link.b.dev);
+        const op = side === 'in' ? portsOf(o).out[link.a.port] : portsOf(o).in[link.b.port];
+        peer = `<a href="#" data-sel-link="${link.id}">${esc(o.props.name)}</a> <small>${esc(op ? op.label : '')} · ${CABLES[link.type].short}</small>`;
+      }
+      if (p.kind === 'opt') {
+        const r = side === 'in' ? (link ? S.engine.traceIn(d.id, k) : null) : S.engine.traceOut(d.id, k);
+        const v = S.engine.power(r);
+        if (link || side === 'out') pw = r ? (r.dark ? '<span class="muted">sombre</span>' : `<span class="st-${P.classify(v, -27, -8, true).code}">${dbm(v)}</span>`) : '';
+      }
+      if (link || ports[side].length <= 16) rows.push(`<tr><td><span class="pdot ${p.kind}"></span>${esc(p.label)}</td><td>${peer}</td><td class="num">${pw}</td></tr>`);
+    };
+    ports.in.forEach((p, k) => portRow(p, k, 'in'));
+    ports.out.forEach((p, k) => portRow(p, k, 'out'));
+    if (rows.length) h += `<div class="section"><h4>Ports & raccordements <small>(${ports.in.length} entrée(s), ${ports.out.length} sortie(s))</small></h4><table class="ports">${rows.join('')}</table>${ports.in.length + ports.out.length > 32 ? '<p class="muted small">Seuls les ports raccordés sont listés.</p>' : ''}</div>`;
+    h += `<div class="row"><button class="btn" data-act="bilan">Voir le bilan optique</button><button class="btn" data-act="dup">Dupliquer</button><button class="btn danger" data-act="delete">Supprimer</button></div>`;
+    return h;
+  }
+
+  /* ---------------- Configuration (couche service) ---------------- */
+  const ROW_DEFAULTS = { onts: { sn: '', profile: 'trio' }, accounts: { login: '', password: '' }, ports: { enabled: false, profile: 'internet-1g' } };
+
+  function profileSelect(val, attrs) {
+    return `<select ${attrs}>${Object.entries(P.PROFILES).map(([k, p]) => `<option value="${k}" ${k === val ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>`;
+  }
+
+  function svcPill(r) {
+    if (!r || !r.evaluated) return '<span class="pill st-nc">Non évalué</span>';
+    return r.ok ? '<span class="pill st-ok">En service</span>' : '<span class="pill st-los">En défaut</span>';
+  }
+
+  function stepsHTML(r) {
+    let h = `<ol class="svc-steps">${r.steps.map(s => `<li class="${s.ok ? 'ok' : 'ko'}"><b>${esc(s.label)}</b><small>${esc(s.detail)}</small></li>`).join('')}</ol>`;
+    if (!r.ok && r.steps.length) h += '<p class="muted small">Les étapes suivantes ne sont pas vérifiées tant que celle-ci est en défaut.</p>';
+    return h;
+  }
+
+  function terminalPanelHTML(d) {
+    const r = S.services.terminals.get(d.id);
+    if (!r) return '';
+    let h = `<div class="section"><h4>Service ${esc(r.label)}</h4><div class="status-line">${svcPill(r)}${r.ok ? `<b>${SV.nf(r.debit.down)} Mbit/s ↓ · ${SV.nf(r.debit.up)} Mbit/s ↑</b>` : ''}</div>`;
+    if (!r.evaluated) return h + `<p class="muted">${esc(r.reason)}</p></div>`;
+    if (r.ok) h += `<table class="kv"><tr><td>Adresse IP</td><td>${esc(r.ip)}</td></tr><tr><td>Débit maximal</td><td>${esc(r.debit.note)}</td></tr></table>`;
+    return h + `<h5>Diagnostic pas à pas</h5>${stepsHTML(r)}</div>`;
+  }
+
+  function boxPanelHTML(d) {
+    const w = S.services.boxes.get(d.id);
+    let h = '<div class="section"><h4>État de la Box</h4>';
+    if (!S.services.active) return h + '<p class="muted">Couche service non évaluée : aucun routeur de collecte raccordé.</p></div>';
+    h += `<table class="kv"><tr><td>Session WAN</td><td>${w ? (w.ok ? `<span class="st-ok">Connectée</span> · ${esc(w.ip)} (${esc(SV.MODE_LABEL[w.mode])})` : `<span class="st-los">Échec</span> · ${esc(w.reason)}`) : '<span class="muted">Non testée (voir les appareils)</span>'}</td></tr>`;
+    portsOf(d).out.forEach((p, k) => {
+      const l = S.engine.outMap.get(d.id + '#' + k);
+      const t = l ? devById(l.b.dev) : null;
+      const r = t ? S.services.terminals.get(t.id) : null;
+      if (r) h += `<tr><td>${esc(p.label)}</td><td>${esc(t.props.name)} · ${esc(r.label)} ${r.ok ? `<span class="st-ok">✓</span> ${esc(r.ip)}` : `<span class="st-los">✗</span> <small>${esc(r.reason)}</small>`}</td></tr>`;
+    });
+    return h + '</table></div>';
+  }
+
+  function ontPanelHTML(d) {
+    const o = S.services.onts.get(d.id);
+    let h = `<div class="section"><h4>Raccordement logique</h4><table class="kv"><tr><td>Numéro de série</td><td><code>${esc(o ? o.sn : SV.snOf(d))}</code></td></tr>`;
+    if (o && o.head) {
+      const isAon = o.head.type === 'switch_aon';
+      h += `<tr><td>Équipement de tête</td><td>${esc(o.head.props.name)} · ${isAon ? 'SFP' : 'PON'} ${o.port + 1}</td></tr>`;
+      if (o.auth) h += `<tr><td>${isAon ? 'Port' : 'Autorisation'}</td><td>${o.auth.ok ? `<span class="st-ok">${isAon ? 'Activé' : o.auth.how === 'auto' ? 'Automatique' : 'Déclarée'}</span> · ${esc(P.PROFILES[o.profile] ? P.PROFILES[o.profile].label : '')}` : `<span class="st-los">${isAon ? 'Port désactivé' : 'Non déclarée sur l\'OLT'}</span>`}</td></tr>`;
+    } else h += '<tr><td>Équipement de tête</td><td class="muted">Aucun (pas de liaison optique vers un OLT ou un switch AON)</td></tr>';
+    return h + '</table></div>';
+  }
+
+  function headPanelHTML(d) {
+    const hd = S.services.heads.get(d.id);
+    let h = '<div class="section"><h4>Raccordement au réseau de collecte</h4><table class="kv">';
+    h += `<tr><td>Routeur de collecte</td><td>${hd && hd.collecte ? `<span class="st-ok">${esc(hd.collecte.props.name)}</span>` : '<span class="st-los">Non relié</span> <small>(câble « Lien de collecte 10 GbE » vers l\'uplink)</small>'}</td></tr>`;
+    if (hd) {
+      const up = hd.onts.filter(o => o.up).length;
+      h += `<tr><td>${d.type === 'olt' ? 'ONT en ligne' : 'Abonnés raccordés'}</td><td>${up} / ${hd.onts.length}</td></tr>`;
+    }
+    return h + '</table></div>';
+  }
+
+  function collectePanelHTML(d) {
+    let h = '<div class="section"><h4>Équipements desservis</h4><table class="kv">';
+    let n = 0;
+    portsOf(d).out.forEach((p, k) => {
+      const l = S.engine.outMap.get(d.id + '#' + k);
+      const t = l ? devById(l.b.dev) : null;
+      if (!t) return;
+      n++;
+      const hd = S.services.heads.get(t.id);
+      h += `<tr><td>${esc(p.label)}</td><td>${esc(t.props.name)}${hd ? ` · ${hd.onts.filter(o => o.up).length} abonné(s) en ligne` : ''}</td></tr>`;
+    });
+    const sessions = [...S.services.boxes.values()].filter(w => w.ok).length;
+    if (!n) h += '<tr><td colspan="2" class="muted">Aucun lien de collecte : reliez un port 10G à l\'uplink d\'un OLT ou d\'un switch AON.</td></tr>';
+    h += `<tr><td>Sessions WAN ouvertes</td><td>${sessions}</td></tr>`;
+    return h + '</table></div>';
+  }
+
+  function ontTableHTML(d) {
+    const list = d.props.onts || [];
+    let h = '<p class="muted small">Déclarez chaque ONT par son numéro de série (inscrit sur l\'étiquette de l\'ONT) et choisissez son profil de service.</p>';
+    h += '<table class="cfg-table"><tr><th>N° de série</th><th>Profil</th><th></th></tr>';
+    list.forEach((e, i) => { h += `<tr><td><input type="text" data-row="onts" data-i="${i}" data-f="sn" value="${esc(e.sn)}" spellcheck="false" placeholder="ex. OPTI1A2B3C4D"></td><td>${profileSelect(e.profile, `data-row="onts" data-i="${i}" data-f="profile"`)}</td><td><button class="btn icon small" data-row-del="onts" data-i="${i}" title="Retirer cette ONT" aria-label="Retirer">✕</button></td></tr>`; });
+    if (!list.length) h += '<tr><td colspan="3" class="muted">Aucune ONT déclarée.</td></tr>';
+    h += '</table><div class="row"><button class="btn small" data-row-add="onts">+ Déclarer une ONT</button></div>';
+    const hd = S.services && S.services.heads.get(d.id);
+    const seen = hd ? hd.onts.filter(o => o.up) : [];
+    h += '<h5>ONT détectées sur les ports PON</h5>';
+    if (!seen.length) return h + '<p class="muted small">Aucune ONT détectée. Une ONT n\'apparaît que si elle reçoit assez de lumière.</p>';
+    h += '<table class="cfg-table"><tr><th>ONT</th><th>N° de série</th><th>Port</th><th></th></tr>';
+    seen.forEach(o => {
+      const declared = list.some(e => String(e.sn || '').trim().toUpperCase() === o.sn);
+      h += `<tr><td>${esc(o.name)}</td><td><code>${esc(o.sn)}</code></td><td>PON ${o.port + 1}</td><td>${declared ? '<span class="st-ok">Déclarée</span>' : `<button class="btn small" data-authorize="${esc(o.sn)}">Autoriser</button>`}</td></tr>`;
+    });
+    return h + '</table>';
+  }
+
+  function accountTableHTML(d) {
+    const list = d.props.accounts || [];
+    let h = '<h5>Comptes PPPoE des abonnés</h5><table class="cfg-table"><tr><th>Identifiant</th><th>Mot de passe</th><th></th></tr>';
+    list.forEach((a, i) => { h += `<tr><td><input type="text" data-row="accounts" data-i="${i}" data-f="login" value="${esc(a.login)}" spellcheck="false"></td><td><input type="text" data-row="accounts" data-i="${i}" data-f="password" value="${esc(a.password)}" spellcheck="false"></td><td><button class="btn icon small" data-row-del="accounts" data-i="${i}" title="Supprimer ce compte" aria-label="Supprimer">✕</button></td></tr>`; });
+    if (!list.length) h += '<tr><td colspan="3" class="muted">Aucun compte.</td></tr>';
+    return h + '</table><div class="row"><button class="btn small" data-row-add="accounts">+ Ajouter un compte</button></div>';
+  }
+
+  function aonPortsHTML(d) {
+    const ports = d.props.ports || [];
+    let h = '<p class="muted small">En Active Ethernet, l\'abonné est identifié par le port physique : activez son port et choisissez son profil.</p>';
+    h += '<table class="cfg-table"><tr><th>Port</th><th>Actif</th><th>Profil</th><th>Abonné</th></tr>';
+    const onts = S.services ? [...S.services.onts.entries()].filter(([, o]) => o.head && o.head.id === d.id) : [];
+    for (let k = 0; k < +d.props.sfpPorts; k++) {
+      const c = Object.assign({}, ROW_DEFAULTS.ports, ports[k] || {});
+      const who = onts.find(([, o]) => o.port === k);
+      h += `<tr><td>SFP ${k + 1}</td><td><input type="checkbox" data-row="ports" data-i="${k}" data-f="enabled" ${c.enabled ? 'checked' : ''} aria-label="Port SFP ${k + 1} actif"></td><td>${profileSelect(c.profile, `data-row="ports" data-i="${k}" data-f="profile"`)}</td><td>${who ? esc(devById(who[0]).props.name) : '<span class="muted">—</span>'}</td></tr>`;
+    }
+    return h + '</table>';
+  }
+
+  function cfgFieldsHTML(d, def) {
+    let h = '', open = false;
+    const close = () => { if (open) { h += '</div></div>'; open = false; } };
+    for (const f of def.config) {
+      if (f.group) { close(); h += `<div class="section"><h4>${esc(f.group)}</h4><div class="form-grid">`; open = true; continue; }
+      if (f.show && !f.show(d.props)) continue;
+      if (f.type === 'ontTable') h += `<div>${ontTableHTML(d)}</div>`;
+      else if (f.type === 'accountTable') h += `<div>${accountTableHTML(d)}</div>`;
+      else if (f.type === 'aonPorts') h += `<div>${aonPortsHTML(d)}</div>`;
+      else h += fieldHTML(f, d.props[f.key], 'cfg');
+    }
+    close();
+    return h;
+  }
+
+  function servicesTableHTML() {
+    const rows = S.topo.devices.filter(d => SV.TERMINAL_SERVICE[d.type]).map(d => ({ d, r: S.services.terminals.get(d.id) })).filter(x => x.r && x.r.evaluated);
+    if (!rows.length) return '<p class="muted small">Aucun appareil abonné (PC, décodeur, téléphone) raccordé.</p>';
+    return `<table class="cfg-table svc-table"><tr><th>Appareil</th><th>Service</th><th>État</th></tr>${rows.map(({ d, r }) => `<tr><td><a href="#" data-sel-dev="${d.id}">${esc(d.props.name)}</a></td><td>${esc(r.label)}</td><td>${r.ok ? `<span class="st-ok">✓ ${SV.nf(r.debit.down)} Mbit/s</span>` : `<span class="st-los">✗</span> <small>${esc(r.reason)}</small>`}</td></tr>`).join('')}</table>`;
+  }
+
+  const CFG_ARRAY_LABEL = { onts: 'Liste des ONT autorisées', accounts: 'Comptes PPPoE', ports: 'Ports SFP' };
+  function cfgFaultEditor(d) {
+    const f = d.cfgFault, def = f && SV.CFG_FAULTS[f.type];
+    if (S.mode !== 'fault' || !TEACHER || S.exam) {
+      if (f && !f.hidden) return `<div class="alert err"><b>Panne de configuration :</b> ${esc(def.label)}. <small>(Corrigez la configuration ci-dessous${TEACHER ? ', ou réparez en mode « Simulation de pannes »' : ''}.)</small></div>`;
+      return '';
+    }
+    
+  }
+
+  function configHTML() {
+    const d = S.sel && S.sel.kind === 'dev' ? devById(S.sel.id) : null;
+    if (!d || isContainer(d)) {
+      let h = '<div class="insp-head"><div><b>Configuration & services</b><small>Sélectionnez un équipement actif : routeur de collecte, OLT, switch AON, ONT, Box ou appareil.</small></div></div>';
+      if (!S.services.active) return h + '<p class="muted">La couche service n\'est évaluée que lorsqu\'un <b>routeur de collecte</b> est relié par un « Lien de collecte 10 GbE » à un OLT ou à un switch AON. Voir la documentation : <a href="#" data-doc-link="svc-intro">Équipements actifs & services</a>.</p>';
+      return h + `<div class="section"><h4>Services des abonnés</h4>${servicesTableHTML()}</div>`;
+    }
+    const def = CATALOG[d.type];
+    let h = `<div class="insp-head"><span class="chip" style="background:${def.color}">${def.short}</span><div><b>${esc(d.props.name)}</b><small>${esc(def.label)}</small></div></div>`;
+    if (!def.config) return h + '<p class="muted">Équipement passif ou sans configuration logique : ses réglages physiques sont dans l\'onglet « Propriétés ».</p>';
+    h += cfgFaultEditor(d);
+    if (SV.TERMINAL_SERVICE[d.type]) h += terminalPanelHTML(d);
+    else if (d.type === 'router') h += boxPanelHTML(d);
+    else if (d.type === 'ont') h += ontPanelHTML(d);
+    else if (d.type === 'olt' || d.type === 'switch_aon') h += headPanelHTML(d);
+    else if (d.type === 'collecte') h += collectePanelHTML(d);
+    return h + cfgFieldsHTML(d, def);
+  }
+
+  function linkPropsHTML(l) {
+    if (!l) return overviewHTML();
+    const c = CABLES[l.type];
+    const A = devById(l.a.dev), B = devById(l.b.dev);
+    const li = S.engine.lengthInfo(l);
+    const ls = S.engine.linkState(l);
+    let h = `<div class="insp-head"><span class="chip" style="background:${l.type === 'patch' ? P.connectorColor(l.connector) : c.color};color:#111">${esc(c.short)}</span><div><b>${esc(c.label)}</b><small>${esc(A.props.name)} → ${esc(B.props.name)}</small></div></div>`;
+    h += `<p class="muted">${esc(c.help)}</p>`;
+    if (c.kind === 'opt') h += `<div class="section status-line">${statusPill(ls.code === 'dark' ? { code: 'nc', label: 'Pas de lumière (aucune source)' } : { code: ls.code, label: ls.label || 'LOS' })}${ls.power !== undefined && ls.power !== null ? `<b class="big">${dbm(ls.power)}</b><small>à l'arrivée</small>` : ''}</div>`;
+    else h += `<div class="section status-line">${statusPill(ls.up ? { code: 'ok', label: c.kind === 'up' ? 'Lien de collecte actif (10 Gbit/s)' : 'Lien Ethernet actif' } : { code: 'los', label: ls.reason || 'Lien inactif' })}</div>`;
+    h += faultEditor(l, true);
+    const outOpts = portsOf(A).out.map((p, k) => [p, k]).filter(([p, k]) => p.kind === c.kind && (k === l.a.port || !S.engine.outMap.has(A.id + '#' + k)));
+    const inOpts = portsOf(B).in.map((p, k) => [p, k]).filter(([p, k]) => p.kind === c.kind && (k === l.b.port || !S.engine.inMap.has(B.id + '#' + k)));
+    h += `<div class="section"><h4>Raccordement</h4><div class="form-grid">
+      <label>Port amont (${esc(A.props.name)})<select data-lk="aport">${outOpts.map(([p, k]) => `<option value="${k}" ${k === l.a.port ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>
+      <label>Port aval (${esc(B.props.name)})<select data-lk="bport">${inOpts.map(([p, k]) => `<option value="${k}" ${k === l.b.port ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>`;
+    const autoOK = li.auto;
+    h += `<label>Longueur ${l.autoLength && autoOK ? '(calculée)' : ''}<div class="inline"><input type="number" data-lk="length" min="0" step="any" value="${l.autoLength && autoOK ? li.base : l.length}" ${l.autoLength && autoOK ? 'disabled' : ''}><span class="unit">m</span></div></label>`;
+    if (l.type === 'riser' || l.type === 'lszh') h += `<label class="check"><input type="checkbox" data-lk="autoLength" ${l.autoLength ? 'checked' : ''}> Longueur auto (étages)</label>`;
+    if (c.kind === 'opt') {
+      const jo = v => Object.entries(JOINTS).map(([k, j]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${esc(j.label)}</option>`).join('');
+      h += `<label>Raccordement amont<select data-lk="jointA">${jo(l.jointA)}</select></label><label>Raccordement aval<select data-lk="jointB">${jo(l.jointB)}</select></label>`;
+      if (l.type === 'patch') h += `<label>Connecteurs<select data-lk="connector">${P.CONNECTORS.map(x => `<option ${x === l.connector ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label>Type<select data-lk="duplex">${['Simplex', 'Duplex'].map(x => `<option ${x === l.duplex ? 'selected' : ''}>${x}</option>`).join('')}</select></label>`;
+      else h += `<label>Capacité<div class="inline"><select data-lk="fibers">${[1, 2, 4, 6, 12, 24, 48, 72, 144].map(n => `<option ${n === +l.fibers ? 'selected' : ''}>${n}</option>`).join('')}</select><span class="unit">FO</span></div></label>`;
+    }
+    h += '</div></div>';
+    if (c.kind === 'opt') {
+      const lambda = (ls.res && ls.res.lambda) || 1310;
+      const seg = S.engine.linkSegment(l, lambda);
+      h += `<div class="section"><h4>Pertes du câble à ${lambda} nm</h4><table class="kv">`;
+      seg.items.filter(it => !it.hidden).forEach(it => { h += `<tr><td>${esc(it.label)}</td><td class="num">${isFinite(it.loss) ? fmt(it.loss, 3) + ' dB' : '<b class="st-los">∞</b>'}</td></tr>`; });
+      h += `<tr class="total"><td>Total câble</td><td class="num">${fmt(seg.items.filter(it => !it.hidden).reduce((s, it) => s + (isFinite(it.loss) ? it.loss : 0), 0), 3)} dB</td></tr></table>`;
+      if (li.auto) h += `<p class="muted small">Colonne montante : ${Math.abs(A.floor - B.floor)} niveau(x) × ${fmt(devById(A.parent).props.floorHeight, 1)} m.</p>`;
+      seg.warnings.forEach(w => { h += `<div class="alert warn">${esc(w)}</div>`; });
+      h += '</div>';
+    } else if (+l.length > P.ETH_MAX) h += `<div class="alert warn">Lien cuivre de ${l.length} m : la limite Ethernet est de 100 m.</div>`;
+    h += `<div class="row"><button class="btn danger" data-act="delete">Supprimer le câble</button></div>`;
+    return h;
+  }
+
+  function overviewHTML() {
+    const n = S.topo.devices.filter(d => !isContainer(d)).length;
+    const nb = S.topo.devices.filter(isContainer).length;
+    let h = `<div class="insp-head"><div><b>Aucune sélection</b><small>Cliquez sur un équipement, un câble ou un bâtiment</small></div></div>`;
+    h += `<div class="section"><h4>Topologie</h4><table class="kv"><tr><td>Équipements</td><td>${n}</td></tr><tr><td>Bâtiments</td><td>${nb}</td></tr><tr><td>Câbles</td><td>${S.topo.links.length}</td></tr>`;
+    const onts = S.topo.devices.filter(d => d.type === 'ont' || (d.type === 'switch' && d.props.role === 'acces'));
+    if (onts.length) {
+      const c = { ok: 0, weak: 0, los: 0, sat: 0, nc: 0, dark: 0 };
+      onts.forEach(o => { const s = S.engine.deviceState(o.id); c[s.code] = (c[s.code] || 0) + 1; });
+      h += `<tr><td>Récepteurs (ONT / switch)</td><td><span class="st-ok">${c.ok} OK</span> · <span class="st-weak">${c.weak} faibles</span> · <span class="st-los">${c.los + c.sat} LOS/sat.</span></td></tr>`;
+    }
+    h += '</table></div>';
+    const w = S.engine.warnings();
+    if (w.length) h += `<div class="section"><h4>Alertes d'ingénierie</h4>${w.map(x => `<div class="alert warn"><a href="#" data-sel-link="${x.id}">${esc(x.text)}</a></div>`).join('')}</div>`;
+    if (S.services && S.services.active) h += `<div class="section"><h4>Services des abonnés</h4>${servicesTableHTML()}<p class="muted small">Détail et configuration : onglet « Configuration ».</p></div>`;
+    h += `<div class="section"><h4>Démarrage rapide</h4><ol class="small">
+      <li>Glissez un <b>OLT</b>, un <b>ODF</b> et des équipements sur le canevas.</li>
+      <li>Choisissez un <b>câble</b> dans la boîte à outils puis cliquez sur l'équipement amont et l'équipement aval.</li>
+      <li>Passez en mode <b>Mesure / Test</b> pour utiliser photomètre, OTDR et VFL.</li>
+      <li>Ou chargez un <a href="#" data-act="labs">TP prêt à l'emploi</a>.</li></ol></div>`;
+    return h;
+  }
+
+  /* ---------------- Bilan optique ---------------- */
+  function bilanTarget() {
+    if (!S.sel) return null;
+    if (S.sel.kind === 'link') { const l = linkById(S.sel.id); return l && CABLES[l.type].kind === 'opt' ? { d: devById(l.b.dev), port: l.b.port } : null; }
+    const d = devById(S.sel.id);
+    if (!d || isContainer(d)) return null;
+    return { d, port: null };
+  }
+
+  function bilanHTML() {
+    const t = bilanTarget();
+    if (!t) return `<div class="insp-head"><div><b>Bilan optique</b><small>Sélectionnez un équipement récepteur (ONT, PTO, switch…) ou un câble.</small></div></div><p class="muted">Le bilan détaille, tronçon par tronçon, toutes les pertes entre la source (OLT / switch) et le point choisi : NRO, extérieur, ODF/PMI, colonne montante, PBO d'étage et branchement abonné.</p>`;
+    const d = t.d;
+    const ports = portsOf(d).in.map((p, k) => [p, k]).filter(([p, k]) => p.kind === 'opt' && S.engine.inMap.has(d.id + '#' + k));
+    let port = S.bilanPort !== null ? S.bilanPort : t.port;
+    if (port === null) { const b = S.engine.bestIn(d.id); port = b ? b.port : (ports[0] ? ports[0][1] : null); }
+    let h = `<div class="insp-head"><span class="chip" style="background:${CATALOG[d.type].color}">${CATALOG[d.type].short}</span><div><b>Bilan jusqu'à : ${esc(d.props.name)}</b><small>Somme des pertes depuis la source</small></div></div>`;
+    if (ports.length > 1) h += `<label class="inline-label">Port d'entrée <select id="bilanPort">${ports.map(([p, k]) => `<option value="${k}" ${k === port ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>`;
+    const res = port !== null ? S.engine.traceIn(d.id, port) : null;
+    if (!ports.length) return h + `<div class="alert warn">Aucun câble optique n'arrive sur cet équipement.</div>`;
+    if (!res) return h + `<div class="alert warn">Aucun chemin optique continu n'arrive sur cet équipement (port non raccordé ou erreur de brassage en amont).</div>`;
+    const groups = new Map(CATEGORIES.map(c => [c, []]));
+    let src = null;
+    for (const seg of res.segments) {
+      if (seg.kind === 'source') { src = seg; continue; }
+      for (const it of seg.items) {
+        if (it.kind === 'pass' || (it.loss === 0 && it.kind !== 'fiber')) continue;
+        const hidden = !!it.hidden;
+        groups.get(seg.category).push({ label: hidden ? 'Pertes mesurées anormales (panne cachée ?)' : `${seg.label} — ${it.label}`, loss: hidden ? null : it.loss, hidden, fault: it.fault });
+      }
+    }
+    const total = res.loss;
+    const maxG = Math.max(0.01, ...Array.from(groups.values()).map(g => g.reduce((s, x) => s + (isFinite(x.loss) ? x.loss || 0 : 0), 0)));
+    h += '<table class="bilan">';
+    if (src) { const S0 = devById(src.id); h += `<tr class="src"><td>Émission ${esc(S0.props.name)} (${res.lambda} nm)</td><td class="num">${dbm(res.tx)}</td></tr>`; }
+    else h += `<tr class="src"><td colspan="2">Aucune source en amont (réseau « sombre ») — pertes seules</td></tr>`;
+    let hiddenFault = false;
+    for (const [cat, items] of groups) {
+      if (!items.length) continue;
+      const sub = items.reduce((s, x) => s + (x.loss !== null && isFinite(x.loss) ? x.loss : 0), 0);
+      const inf = items.some(x => x.loss === Infinity);
+      h += `<tr class="cat"><td>${esc(cat)}<div class="bar"><i style="width:${inf ? 100 : Math.max(2, sub / maxG * 100)}%"></i></div></td><td class="num">${inf ? '∞' : fmt(sub, 3)} dB</td></tr>`;
+      items.forEach(x => {
+        if (x.hidden) hiddenFault = true;
+        h += `<tr class="${x.fault && !x.hidden ? 'fault' : ''}"><td>${esc(x.label)}</td><td class="num">${x.hidden ? '?' : x.loss === Infinity ? '<b class="st-los">coupure</b>' : fmt(x.loss, 3)}</td></tr>`;
+      });
+    }
+    h += '</table>';
+    if (hiddenFault) h += '<p class="muted small">Une perte inconnue (panne cachée) est présente : utilisez les instruments pour la localiser.</p>';
+    const sens = S.engine.sensOf(d);
+    const pw = S.engine.power(res);
+    const shownLoss = hiddenFault ? null : total;
+    h += `<table class="kv summary"><tr><td>Σ pertes${res.lost ? ' (avant coupure)' : ''}</td><td class="num">${shownLoss === null ? '?' : fmt(shownLoss, 2) + ' dB'}</td></tr>
+      <tr><td>Longueur optique totale</td><td class="num">${fmtLen(Math.round(res.length * 10) / 10)}</td></tr>`;
+    if (!res.dark) {
+      h += `<tr><td>Puissance reçue</td><td class="num"><b>${res.lost ? 'LOS' : hiddenFault ? '→ mesurer' : dbm(pw)}</b></td></tr>
+        <tr><td>Sensibilité ${sens.passive ? '(réf. ONT B+)' : ''}</td><td class="num">${dbm(sens.sens)}</td></tr>`;
+      if (!res.lost && !hiddenFault) {
+        const st = P.classify(pw, sens.sens, sens.over, sens.passive);
+        h += `<tr><td>Marge</td><td class="num">${fmt(pw - sens.sens)} dB</td></tr><tr><td>Statut</td><td class="num">${statusPill(st)}</td></tr>`;
+      }
+    }
+    h += '</table>';
+    if (!res.dark && !res.lost && !hiddenFault) h += `<p class="formula">P<sub>rx</sub> = ${dbm(res.tx)} − ${fmt(total)} dB = <b>${dbm(pw)}</b></p>`;
+    if (res.lost) h += `<div class="alert err">Signal interrompu : ${esc(res.segments[res.lostAt].label)}.</div>`;
+    return h;
+  }
+
+  /* ---------------- OTDR ---------------- */
+  function runOtdr(showErr) {
+    const o = S.otdr;
+    if (!o.devId) return;
+    const r = P.otdrShot(S.engine, o.devId, { lambda: o.lambda, launch: o.launch });
+    if (r.error) { o.result = null; o.error = r.error; if (showErr) toast(r.error, 'err'); }
+    else { o.result = r; o.error = null; }
+  }
+
+  function otdrHTML() {
+    const o = S.otdr;
+    let h = `<div class="insp-head"><div><b>Réflectomètre OTDR</b><small>${o.devId && devById(o.devId) ? 'Tir vers : ' + esc(devById(o.devId).props.name) : 'Mode Mesure → outil OTDR → cliquez sur un équipement'}</small></div></div>`;
+    h += `<div class="otdr-ctl"><label>λ <select id="otdrLambda">${[1310, 1550].map(l => `<option ${l === o.lambda ? 'selected' : ''}>${l}</option>`).join('')}</select> nm</label>
+      <label>Bobine amorce <select id="otdrLaunch">${[0, 300, 500, 1000].map(l => `<option value="${l}" ${l === o.launch ? 'selected' : ''}>${l ? l + ' m' : 'aucune'}</option>`).join('')}</select></label>
+      ${S.sel && S.sel.kind === 'dev' && !isContainer(devById(S.sel.id)) ? '<button class="btn small" data-act="otdr-sel">Tirer sur la sélection</button>' : ''}
+      <button class="btn small" data-act="otdr-full">Vue complète</button></div>`;
+    h += `<div class="otdr-screen"><canvas id="otdrCanvas" height="230"></canvas><div class="otdr-read" id="otdrRead"></div></div>`;
+    if (o.error) h += `<div class="alert warn">${esc(o.error)}</div>`;
+    if (o.result) {
+      const r = o.result;
+      h += `<table class="kv"><tr><td>Origine</td><td>${esc(r.origin)} (OTDR à la place de la source)</td></tr><tr><td>Fin de trace</td><td>${fmtLen(Math.round(r.endPos * 10) / 10)}</td></tr><tr><td>Perte totale mesurée</td><td>${fmt(r.totalLoss)} dB</td></tr></table>`;
+      h += `<table class="events"><thead><tr><th>#</th><th>Distance</th><th>Perte</th><th>Type</th></tr></thead><tbody>`;
+      r.events.forEach(e => {
+        h += `<tr data-ev="${e.n}" class="${e.end && e.kind && e.kind.startsWith('fault') ? 'fault' : ''}" title="${esc(e.label)}"><td>${e.n}</td><td class="num">${fmt(e.pos, 1)} m</td><td class="num">${e.end ? '—' : fmt(e.loss, 2) + ' dB'}</td><td>${esc(e.type)}<small>${esc(e.label)}</small></td></tr>`;
+      });
+      h += '</tbody></table><p class="muted small">Cliquez sur un événement pour zoomer. Survolez la courbe pour lire distance et niveau.</p>';
+    }
+    return h;
+  }
+
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+  function drawOtdr() {
+    const cv = $('#otdrCanvas');
+    if (!cv) return;
+    const wrap = cv.parentElement;
+    const W = wrap.clientWidth || 320, H = 230;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = cssVar('--otdr-bg'); ctx.fillRect(0, 0, W, H);
+    const o = S.otdr, r = o.result;
+    const m = { l: 38, r: 10, t: 12, b: 24 };
+    const pw = W - m.l - m.r, ph = H - m.t - m.b;
+    ctx.font = '10px system-ui, sans-serif';
+    if (!r) {
+      ctx.fillStyle = cssVar('--otdr-grid-text');
+      ctx.textAlign = 'center';
+      ctx.fillText('Aucune trace — choisissez l\'outil OTDR et cliquez sur un équipement', W / 2, H / 2);
+      return;
+    }
+    const x0 = o.x0 !== null ? o.x0 : 0, x1 = o.x1 !== null ? o.x1 : r.span;
+    let lo = Infinity, hi = -Infinity;
+    for (const [x, y] of r.points) if (x >= x0 && x <= x1) { lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    if (!isFinite(lo)) { lo = r.floor; hi = 20; }
+    const pad = Math.max(0.5, (hi - lo) * 0.08);
+    const yMin = lo - pad, yMax = hi + pad;
+    const yStep = niceStep((yMax - yMin) / 6);
+    const X = x => m.l + (x - x0) / (x1 - x0) * pw;
+    const Y = y => m.t + (yMax - y) / (yMax - yMin) * ph;
+    // grille
+    ctx.strokeStyle = cssVar('--otdr-grid'); ctx.lineWidth = 1; ctx.fillStyle = cssVar('--otdr-grid-text');
+    ctx.textAlign = 'right';
+    for (let y = Math.floor(yMax / yStep) * yStep; y >= yMin; y -= yStep) { ctx.beginPath(); ctx.moveTo(m.l, Y(y)); ctx.lineTo(W - m.r, Y(y)); ctx.stroke(); ctx.fillText(fmt(y, yStep < 1 ? 1 : 0) + ' dB', m.l - 3, Y(y) + 3); }
+    const span = x1 - x0;
+    const step = niceStep(span / 5);
+    ctx.textAlign = 'center';
+    for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) {
+      ctx.beginPath(); ctx.moveTo(X(x), m.t); ctx.lineTo(X(x), m.t + ph); ctx.stroke();
+      ctx.fillText(x >= 1000 ? fmt(x / 1000, step >= 1000 ? 0 : step >= 100 ? 1 : 2) + ' km' : Math.round(x) + ' m', X(x), H - 8);
+    }
+    // événements
+    ctx.save(); ctx.setLineDash([3, 3]);
+    r.events.forEach(e => {
+      if (e.pos < x0 || e.pos > x1) return;
+      ctx.strokeStyle = e.end && e.kind && e.kind.startsWith('fault') ? '#ef4444' : cssVar('--otdr-event');
+      ctx.beginPath(); ctx.moveTo(X(e.pos), m.t); ctx.lineTo(X(e.pos), m.t + ph); ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle; ctx.fillText(String(e.n), X(e.pos) + 6, m.t + 9);
+    });
+    ctx.restore();
+    // trace
+    ctx.save();
+    ctx.beginPath(); ctx.rect(m.l, m.t, pw, ph); ctx.clip();
+    ctx.strokeStyle = cssVar('--otdr-trace'); ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    let first = true;
+    for (const [x, y] of r.points) {
+      if (x < x0 - span * 0.02 || x > x1 + span * 0.02) continue;
+      if (first) { ctx.moveTo(X(x), Y(y)); first = false; } else ctx.lineTo(X(x), Y(y));
+    }
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = cssVar('--otdr-grid-text'); ctx.textAlign = 'left';
+    ctx.fillText(`${r.lambda} nm · ${r.launch ? 'bobine ' + r.launch + ' m' : 'sans bobine'}`, m.l + 4, H - m.b - 4);
+    // curseur
+    if (o.hover !== null && o.hover >= x0 && o.hover <= x1) {
+      let best = r.points[0];
+      for (const p of r.points) if (Math.abs(p[0] - o.hover) < Math.abs(best[0] - o.hover)) best = p;
+      ctx.strokeStyle = cssVar('--accent'); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(X(best[0]), m.t); ctx.lineTo(X(best[0]), m.t + ph); ctx.stroke();
+      ctx.fillStyle = cssVar('--accent'); ctx.beginPath(); ctx.arc(X(best[0]), Y(best[1]), 3, 0, Math.PI * 2); ctx.fill();
+      const rd = $('#otdrRead'); if (rd) rd.textContent = `${fmt(best[0], 1)} m · ${fmt(best[1], 2)} dB`;
+    }
+    cv.onmousemove = e => {
+      const rc = cv.getBoundingClientRect();
+      const x = x0 + (e.clientX - rc.left - m.l) / pw * (x1 - x0);
+      o.hover = x; drawOtdr();
+    };
+    cv.onmouseleave = () => { o.hover = null; const rd = $('#otdrRead'); if (rd) rd.textContent = ''; drawOtdr(); };
+  }
+  function niceStep(v) {
+    const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 0.001))));
+    const n = v / p;
+    return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
+  }
+
+  /* ---------------- Liaison des contrôles de l'inspecteur ---------------- */
+  function bindInspector() {
+    $$('[data-scope="cfg"]', insp).forEach(el => el.addEventListener('change', () => {
+      const d = devById(S.sel.id);
+      const f = CATALOG[d.type].config.find(x => x.key === el.dataset.k);
+      let v = el.type === 'checkbox' ? el.checked : el.value;
+      if (f.type === 'number') { v = Math.round(parseFloat(String(v).replace(',', '.'))); if (!isFinite(v)) return renderInspector(); if (f.min !== undefined) v = Math.max(f.min, v); if (f.max !== undefined) v = Math.min(f.max, v); }
+      else if (f.type === 'select') { const o = f.options[0]; if (typeof (Array.isArray(o) ? o[0] : o) === 'number') v = +v; }
+      else if (f.type === 'text') v = f.upper ? v.trim().toUpperCase() : v.trim();
+      logJ('config', `${d.props.name} : ${f.label} = ${typeof v === 'boolean' ? (v ? 'activé' : 'désactivé') : v}`, { id: d.id });
+      mutate(() => { d.props[f.key] = v; });
+    }));
+    $$('[data-row]', insp).forEach(el => el.addEventListener('change', () => {
+      const d = devById(S.sel.id);
+      const key = el.dataset.row, i = +el.dataset.i, f = el.dataset.f;
+      let v = el.type === 'checkbox' ? el.checked : el.value;
+      if (f === 'sn') v = v.trim().toUpperCase(); else if (f === 'login') v = v.trim();
+      logJ('config', `${d.props.name} : ${CFG_ARRAY_LABEL[key] || key}, ligne ${i + 1}, ${f} = ${typeof v === 'boolean' ? (v ? 'activé' : 'désactivé') : v}`, { id: d.id });
+      mutate(() => {
+        const arr = (d.props[key] || []).map(x => Object.assign({}, x));
+        while (arr.length <= i) arr.push(Object.assign({}, ROW_DEFAULTS[key]));
+        arr[i] = Object.assign({}, ROW_DEFAULTS[key], arr[i], { [f]: v });
+        d.props[key] = arr;
+      });
+    }));
+    $$('[data-row-add]', insp).forEach(b => b.addEventListener('click', () => {
+      const d = devById(S.sel.id), key = b.dataset.rowAdd;
+      logJ('config', `${d.props.name} : ligne ajoutée (${CFG_ARRAY_LABEL[key] || key})`, { id: d.id });
+      mutate(() => { d.props[key] = (d.props[key] || []).concat([Object.assign({}, ROW_DEFAULTS[key])]); });
+    }));
+    $$('[data-row-del]', insp).forEach(b => b.addEventListener('click', () => {
+      const d = devById(S.sel.id), key = b.dataset.rowDel, i = +b.dataset.i;
+      logJ('config', `${d.props.name} : ligne ${i + 1} retirée (${CFG_ARRAY_LABEL[key] || key})`, { id: d.id });
+      mutate(() => { d.props[key] = (d.props[key] || []).filter((x, k) => k !== i); });
+    }));
+    $$('[data-authorize]', insp).forEach(b => b.addEventListener('click', () => {
+      const d = devById(S.sel.id), sn = b.dataset.authorize;
+      logJ('config', `${d.props.name} : ONT ${sn} autorisée`, { id: d.id });
+      mutate(() => { d.props.onts = (d.props.onts || []).concat([{ sn, profile: 'trio' }]); });
+      toast(`ONT ${sn} autorisée sur ${d.props.name} (profil Triple play).`, 'ok');
+    }));
+    $$('[data-sel-dev]', insp).forEach(a => a.addEventListener('click', e => { e.preventDefault(); select({ kind: 'dev', id: a.dataset.selDev }); }));
+    $$('[data-doc-link]', insp).forEach(a => a.addEventListener('click', e => { e.preventDefault(); openDocs(a.dataset.docLink); }));
+    $$('[data-scope="dev"]', insp).forEach(el => el.addEventListener('change', () => {
+      const d = devById(S.sel.id);
+      const def = CATALOG[d.type];
+      const f = def.props.find(x => x.key === el.dataset.k);
+      let v = el.type === 'checkbox' ? el.checked : el.value;
+      if (f.type === 'number') { v = parseFloat(String(v).replace(',', '.')); if (!isFinite(v)) return; if (f.min !== undefined) v = Math.max(f.min, v); if (f.max !== undefined) v = Math.min(f.max, v); }
+      else if (f.type === 'select' && typeof (f.options[0]) === 'number') v = +v;
+      logJ('reglage', `${d.props.name} : ${f.label} = ${v}`, { id: d.id });
+      mutate(() => { d.props[f.key] = v; });
+    }));
+    $$('[data-lk]', insp).forEach(el => el.addEventListener('change', () => {
+      const l = linkById(S.sel.id);
+      const k = el.dataset.lk;
+      logJ('reglage', `${linkLabel(l)} : ${k} = ${el.type === 'checkbox' ? el.checked : el.value}`, { id: l.id });
+      mutate(() => {
+        if (k === 'aport') l.a.port = +el.value;
+        else if (k === 'bport') l.b.port = +el.value;
+        else if (k === 'length') { const v = parseFloat(el.value.replace(',', '.')); if (isFinite(v) && v >= 0) l.length = v; }
+        else if (k === 'autoLength') l.autoLength = el.checked;
+        else if (k === 'fibers') l.fibers = +el.value;
+        else l[k] = el.value;
+      });
+    }));
+    $$('[data-sel-link]', insp).forEach(a => a.addEventListener('click', e => { e.preventDefault(); select({ kind: 'link', id: a.dataset.selLink }); }));
+    $$('[data-act]', insp).forEach(b => b.addEventListener('click', e => { e.preventDefault(); inspectorAction(b.dataset.act); }));
+    const bp = $('#bilanPort', insp); if (bp) bp.addEventListener('change', () => { S.bilanPort = +bp.value; renderInspector(); });
+    const ol = $('#otdrLambda', insp); if (ol) ol.addEventListener('change', () => { S.otdr.lambda = +ol.value; if (S.otdr.devId) logJ('otdr', `OTDR vers ${devById(S.otdr.devId).props.name} (${S.otdr.lambda} nm)`, { id: S.otdr.devId }); runOtdr(true); renderInspector(); });
+    const oL = $('#otdrLaunch', insp); if (oL) oL.addEventListener('change', () => { S.otdr.launch = +oL.value; S.otdr.x0 = S.otdr.x1 = null; runOtdr(true); renderInspector(); });
+    $$('tr[data-ev]', insp).forEach(tr => tr.addEventListener('click', () => {
+      const e = S.otdr.result.events[+tr.dataset.ev - 1];
+      const w = Math.max(15, S.otdr.result.span * 0.03);
+      S.otdr.x0 = Math.max(0, e.pos - w); S.otdr.x1 = e.pos + w;
+      $$('tr[data-ev]', insp).forEach(x => x.classList.toggle('active', x === tr));
+      drawOtdr();
+    }));
+  }
+
+  function inspectorAction(act) {
+    const sel = S.sel;
+    const obj = sel ? (sel.kind === 'dev' ? devById(sel.id) : linkById(sel.id)) : null;
+    switch (act) {
+      case 'delete': return deleteSelection();
+      case 'bilan': S.tab = 'bilan'; return renderInspector();
+      case 'labs': return openLabs();
+      case 'dup': {
+        if (locked()) return;
+        const d = obj; const c = JSON.parse(JSON.stringify(d)); c.id = uid(d.type); c.x += 30; c.y += 30; delete c.fault; delete c.cfgFault; c.props.name += ' (copie)';
+        mutate(() => S.topo.devices.push(c)); return select({ kind: 'dev', id: c.id });
+      }
+      case 'intervene': {
+        const hit = !!(obj.fault && obj.fault.type);
+        const name = sel.kind === 'link' ? linkLabel(obj) : obj.props.name;
+        mutate(() => { delete obj.fault; });
+        logJ('intervention', `Intervention sur ${name}`, { id: obj.id, hit });
+        return toast(`Intervention effectuée sur « ${name} ». Contrôlez le résultat par une mesure.`);
+      }
+      
+      case 'otdr-sel': logJ('otdr', `OTDR vers ${obj.props.name} (${S.otdr.lambda} nm)`, { id: sel.id }); S.otdr.devId = sel.id; S.otdr.x0 = S.otdr.x1 = null; runOtdr(true); return renderInspector();
+      case 'otdr-full': S.otdr.x0 = S.otdr.x1 = null; return drawOtdr();
+    }
+  }
+
+  function deleteSelection() {
+    if (!S.sel || locked()) return;
+    if (S.sel.kind === 'link') { const id = S.sel.id; S.sel = null; mutate(() => { S.topo.links = S.topo.links.filter(l => l.id !== id); }); return; }
+    const d = devById(S.sel.id);
+    if (!d) return;
+    const doDel = withKids => {
+      const ids = new Set([d.id]);
+      if (withKids) S.topo.devices.filter(x => x.parent === d.id).forEach(x => ids.add(x.id));
+      S.sel = null;
+      mutate(() => {
+        S.topo.devices = S.topo.devices.filter(x => !ids.has(x.id));
+        S.topo.links = S.topo.links.filter(l => !ids.has(l.a.dev) && !ids.has(l.b.dev));
+      });
+      validateSelection(); refresh();
+    };
+    if (isContainer(d) && S.topo.devices.some(x => x.parent === d.id)) {
+      openModal('Supprimer le bâtiment', `<p>Le bâtiment « ${esc(d.props.name)} » contient des équipements.</p>`, [
+        { label: 'Annuler', action: closeModal },
+        { label: 'Bâtiment seul', action: () => { closeModal(); doDel(false); } },
+        { label: 'Bâtiment et contenu', primary: true, danger: true, action: () => { closeModal(); doDel(true); } }
+      ]);
+    } else doDel(false);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Instrument flottant (photomètre / VFL)                              */
+  /* ------------------------------------------------------------------ */
+  const instr = $('#instrument');
+  function renderInstrument() {
+    if (S.mode === 'test' && S.pm && devById(S.pm.devId)) { instr.hidden = false; instr.innerHTML = pmHTML(); bindInstrument(); return; }
+    if (S.mode === 'test' && S.vfl && devById(S.vfl.devId)) { instr.hidden = false; instr.innerHTML = vflHTML(); bindInstrument(); return; }
+    if (S.mode === 'test' && S.tool && (S.tool.kind === 'pm' || S.tool.kind === 'vfl')) {
+      instr.hidden = false;
+      instr.innerHTML = `<div class="fc-head"><b>${S.tool.kind === 'pm' ? 'Photomètre' : 'Stylo optique VFL'}</b><button class="btn icon small" data-ia="close" aria-label="Fermer">✕</button></div><p class="muted small">Cliquez sur un équipement du canevas pour ${S.tool.kind === 'pm' ? 'mesurer la puissance' : 'injecter la lumière rouge'}.</p>`;
+      bindInstrument(); return;
+    }
+    instr.hidden = true;
+  }
+
+  function pmHTML() {
+    const d = devById(S.pm.devId);
+    const rd = S.engine.portReadings(d.id).filter(x => x.linked || x.side === 'out');
+    let key = S.pm.key;
+    if (!key || !rd.find(x => x.side + x.idx === key)) {
+      const st = S.engine.deviceState(d.id);
+      const pref = rd.find(x => x.side === 'in' && x.idx === st.port) || rd.find(x => x.side === 'in' && x.linked) || rd.find(x => x.power !== null) || rd[0];
+      key = pref ? pref.side + pref.idx : null;
+    }
+    const cur = rd.find(x => x.side + x.idx === key);
+    const sens = S.engine.sensOf(d);
+    let lcd;
+    if (!cur) lcd = '<div class="lcd"><div class="lcd-main">— — —</div><div class="lcd-sub">Aucun port optique</div></div>';
+    else {
+      const r = cur.res;
+      const pw = cur.power;
+      const st = !r ? { code: 'los', label: 'LOS (port non alimenté)' } : r.dark ? { code: 'los', label: 'LOS (pas de source)' } : P.classify(pw, cur.side === 'in' ? sens.sens : -27, cur.side === 'in' ? sens.over : -8, cur.side === 'out' || sens.passive);
+      lcd = `<div class="lcd st-${st.code}">
+        <div class="lcd-row"><span>λ ${r && !r.dark ? r.lambda : '----'} nm</span><span>${esc(cur.label)}</span></div>
+        <div class="lcd-main">${pw === null ? 'LOS' : fmt(pw)}<small>${pw === null ? '' : ' dBm'}</small></div>
+        <div class="lcd-row"><span>Att. cumulée : ${r && !r.dark && !r.lost ? fmt(r.loss) + ' dB' : '—'}</span><span>${r && !r.dark ? 'Src ' + (r.tx > 0 ? '+' : '') + fmt(r.tx, 1) : ''}</span></div>
+        <div class="lcd-status">${esc(st.label)}</div></div>`;
+    }
+    let h = `<div class="fc-head"><b>Photomètre — ${esc(d.props.name)}</b><button class="btn icon small" data-ia="close" aria-label="Fermer">✕</button></div>${lcd}`;
+    h += `<div class="pm-ports">${rd.map(x => `<button class="pm-port ${x.side + x.idx === key ? 'active' : ''}" data-key="${x.side + x.idx}"><span>${x.side === 'in' ? '⇥' : '↦'} ${esc(x.label)}</span><b class="st-${x.power === null ? 'los' : P.classify(x.power, -27, -8, true).code}">${x.power === null ? 'LOS' : fmt(x.power)}</b></button>`).join('')}</div>`;
+    h += `<p class="muted small">Réf. : sensibilité ${dbm(sens.sens)}${sens.passive ? ' (ONT B+)' : ''}, saturation ${dbm(sens.over)}.</p>`;
+    return h;
+  }
+
+  function vflHTML() {
+    const d = devById(S.vfl.devId);
+    const r = S.vfl.result;
+    const leaks = r.leaks.length;
+    return `<div class="fc-head"><b><span class="red-dot"></span>VFL injecté : ${esc(d.props.name)}</b><button class="btn icon small" data-ia="close" aria-label="Éteindre">✕</button></div>
+      <div class="segmented small"><button data-vdir="down" class="${S.vfl.dir === 'down' ? 'active' : ''}">Sens aval →</button><button data-vdir="up" class="${S.vfl.dir === 'up' ? 'active' : ''}">← Sens amont</button></div>
+      <p class="small">${r.lit.size} câble(s) éclairé(s). ${leaks ? `<b class="st-los">${leaks} fuite(s) de lumière rouge visible(s)</b> : défaut localisé !` : 'Aucune fuite visible : continuité OK sur la portée du VFL (≈ 5 km).'}</p>
+      <button class="btn small" data-ia="off">Éteindre le VFL</button>`;
+  }
+
+  function bindInstrument() {
+    $$('[data-ia]', instr).forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.ia === 'close') { S.pm = null; S.vfl = null; if (S.tool && (S.tool.kind === 'pm' || S.tool.kind === 'vfl')) setTool(null); }
+      if (b.dataset.ia === 'off') S.vfl = null;
+      render(); renderInstrument();
+    }));
+    $$('[data-key]', instr).forEach(b => b.addEventListener('click', () => { S.pm.key = b.dataset.key; renderInstrument(); }));
+    $$('[data-vdir]', instr).forEach(b => b.addEventListener('click', () => { S.vfl.dir = b.dataset.vdir; logJ('vfl', `VFL ${S.vfl.dir === 'up' ? 'sens amont' : 'sens aval'} sur ${devById(S.vfl.devId).props.name}`, { id: S.vfl.devId }); S.vfl.result = P.vflInject(S.engine, S.vfl.devId, S.vfl.dir); render(); renderInstrument(); }));
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Pannes (mode Simulation)                                            */
+  /* ------------------------------------------------------------------ */
+
+
+  /* ------------------------------------------------------------------ */
+  /*  Modales : générique, TP, documentation                              */
+  /* ------------------------------------------------------------------ */
+  const modal = $('#modal');
+  function openModal(title, body, buttons = [], cls = '') {
+    $('#modalTitle').textContent = title;
+    $('#modalBody').innerHTML = body;
+    const foot = $('#modalFoot');
+    foot.innerHTML = '';
+    buttons.forEach(b => {
+      const el = document.createElement('button');
+      el.className = 'btn' + (b.primary ? ' primary' : '') + (b.danger ? ' danger' : '');
+      el.textContent = b.label;
+      el.addEventListener('click', b.action);
+      foot.appendChild(el);
+    });
+    foot.hidden = !buttons.length;
+    modal.querySelector('.modal').className = 'modal ' + cls;
+    modal.hidden = false;
+  }
+  function closeModal() { modal.hidden = true; }
+  $('#modalClose').addEventListener('click', closeModal);
+  modal.addEventListener('pointerdown', e => { if (e.target === modal) closeModal(); });
+  modal.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') { const p = $('#modalFoot .primary'); if (p) p.click(); }
+  });
+
+  function confirmReplace(then) {
+    if (!S.topo.devices.length && !S.exam) return then();
+    const msg = S.exam ? `<p>L'examen « ${esc(S.exam.title)} » est en cours : il sera <b>abandonné</b>. Avez-vous rendu votre copie ?</p>` : '<p>La topologie actuelle sera remplacée. Pensez à la sauvegarder si nécessaire (vous pourrez aussi annuler avec Ctrl+Z).</p>';
+    openModal(S.exam ? 'Quitter l\'examen ?' : 'Remplacer la topologie ?', msg, [
+      { label: 'Annuler', action: closeModal },
+      { label: S.exam ? 'Quitter l\'examen' : 'Remplacer', primary: true, danger: !!S.exam, action: () => { closeModal(); endExam(); then(); } }
+    ]);
+  }
+
+  let labSel = 'tp1';
+  function openLabs(id) {
+    if (id) labSel = id;
+    const list = L.LABS.map(l => `<button class="lab-item ${l.id === labSel ? 'active' : ''}" data-lab="${l.id}"><span class="num">TP ${l.num}</span><b>${esc(l.title)}</b><small>${esc(l.archi)} · ${esc(l.level)} · ${esc(l.duration)}</small></button>`).join('')
+      + '<div class="lab-sep">Exemples</div>'
+      + L.EXAMPLES.map(x => `<button class="lab-item ${x.id === labSel ? 'active' : ''}" data-lab="${x.id}"><b>${esc(x.title)}</b></button>`).join('');
+    let detail;
+    const lab = L.LABS.find(l => l.id === labSel);
+    if (lab) {
+      detail = `<div class="lab-head"><span class="tag">TP ${lab.num}</span><span class="tag">${esc(lab.archi)}</span><span class="tag">${esc(lab.level)}</span><span class="tag">⏱ ${esc(lab.duration)}</span></div>
+        <h2>${esc(lab.title)}</h2>
+        <div class="lab-actions"><button class="btn primary" data-load="${lab.id}">Charger la topologie du TP</button></div>
+        <h4>Objectifs</h4><ul>${lab.objectives.map(o => `<li>${esc(o)}</li>`).join('')}</ul>
+        <h4>Situation professionnelle</h4><p>${esc(lab.context)}</p>
+        <h4>Consignes pas-à-pas</h4><ol class="steps">${lab.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
+        <h4>Questions d'évaluation</h4><ol class="questions">${lab.questions.map(q => `<li><p>${esc(q.q)}</p></li>`).join('')}</ol>`;
+    } else {
+      const ex = L.EXAMPLES.find(x => x.id === labSel);
+      detail = `<h2>${esc(ex.title)}</h2><p>${esc(ex.desc)}</p><div class="lab-actions"><button class="btn primary" data-load-ex="${ex.id}">Charger l'exemple</button></div>`;
+    }
+    openModal('Exemples & Travaux Pratiques', `<div class="split"><nav class="lab-list">${list}</nav><article class="lab-detail">${detail}</article></div>`, [], 'wide');
+    $$('[data-lab]').forEach(b => b.addEventListener('click', () => openLabs(b.dataset.lab)));
+    $$('[data-load]').forEach(b => b.addEventListener('click', () => loadLab(b.dataset.load, false)));
+    
+    $$('[data-load-ex]').forEach(b => b.addEventListener('click', () => {
+      const ex = L.EXAMPLES.find(x => x.id === b.dataset.loadEx);
+      confirmReplace(() => { closeModal(); S.lab = null; renderTpPanel(); loadTopology(ex.topology()); setMode('design'); toast(`Exemple chargé : ${ex.title}`, 'ok'); });
+    }));
+  }
+
+  function loadLab(id, full) {
+    const lab = L.LABS.find(l => l.id === id);
+    confirmReplace(() => {
+      closeModal();
+      loadTopology(lab.topology(full));
+      S.lab = { id, checks: lab.steps.map(() => false), collapsed: false };
+      setMode(id === 'tp5' ? 'test' : 'design');
+      renderTpPanel();
+      requestAnimationFrame(fitView);
+      toast(`TP ${lab.num} chargé${full ? ' (correction)' : ''}.`, 'ok');
+    });
+  }
+
+  function renderTpPanel() {
+    const el = $('#tpPanel');
+    if (!S.lab) { el.hidden = true; return; }
+    const lab = L.LABS.find(l => l.id === S.lab.id);
+    el.hidden = false;
+    el.classList.toggle('collapsed', S.lab.collapsed);
+    const done = S.lab.checks.filter(Boolean).length;
+    el.innerHTML = `<div class="fc-head"><b>TP ${lab.num} — ${esc(lab.title)}</b><span class="tp-progress">${done}/${lab.steps.length}</span>
+      <button class="btn icon small" data-tp="toggle" aria-label="Réduire">${S.lab.collapsed ? '▾' : '▴'}</button><button class="btn icon small" data-tp="close" aria-label="Fermer">✕</button></div>
+      <div class="tp-body"><ol>${lab.steps.map((s, i) => `<li><label><input type="checkbox" data-step="${i}" ${S.lab.checks[i] ? 'checked' : ''}> <span>${esc(s)}</span></label></li>`).join('')}</ol>
+      <button class="btn small" data-tp="questions">${TEACHER ? 'Questions & correction' : 'Questions'}</button></div>`;
+    $$('[data-step]', el).forEach(c => c.addEventListener('change', () => { S.lab.checks[+c.dataset.step] = c.checked; renderTpPanel(); }));
+    $$('[data-tp]', el).forEach(b => b.addEventListener('click', () => {
+      const a = b.dataset.tp;
+      if (a === 'toggle') S.lab.collapsed = !S.lab.collapsed;
+      if (a === 'close') S.lab = null;
+      if (a === 'questions') return openLabs(lab.id);
+      renderTpPanel();
+    }));
+  }
+
+  let docSel = 'start';
+  function openDocs(id) {
+    if (id) docSel = id;
+    const groups = {};
+    L.DOCS.forEach(d => { (groups[d.group] = groups[d.group] || []).push(d); });
+    const nav = Object.entries(groups).map(([g, items]) => `<div class="lab-sep">${esc(g)}</div>` + items.map(d => `<button class="lab-item ${d.id === docSel ? 'active' : ''}" data-doc="${d.id}"><b>${esc(d.title)}</b></button>`).join('')).join('');
+    const doc = L.DOCS.find(d => d.id === docSel);
+    openModal('Documentation — Guide de l\'utilisateur & Cours FTTx', `<div class="split"><nav class="lab-list">${nav}</nav><article class="lab-detail doc"><h2>${esc(doc.title)}</h2>${doc.html}</article></div>`, [], 'wide');
+    $$('[data-doc]').forEach(b => b.addEventListener('click', () => openDocs(b.dataset.doc)));
+    // Liens internes entre pages de documentation
+    $$('.lab-detail [data-doc-link]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); openDocs(a.dataset.docLink); }));
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Fichiers                                                            */
+  /* ------------------------------------------------------------------ */
+  function download(text, name, type = 'application/json') {
+    const blob = new Blob([text], { type });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  const slug = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'sans-nom';
+  function saveFile() {
+    if (S.exam) return submitCopy();
+    const data = { app: 'OptiSim FTTx Lab', author: 'Hassami COMPAORE', version: 1, savedAt: new Date().toISOString(), view: S.view, devices: S.topo.devices, links: S.topo.links };
+    download(JSON.stringify(data, null, 2), `topologie-optisim-${new Date().toISOString().slice(0, 10)}.json`);
+    toast('Topologie exportée en JSON.', 'ok');
+  }
+  function openFile(file) {
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const data = JSON.parse(rd.result);
+        const ex = X.readFile(data);
+        if (ex && ex.kind === 'sujet') return confirmReplace(() => startExam(ex.data));
+        if (ex && ex.kind === 'copie') {
+          if (TEACHER) return openGrading([ex.data]);
+          return toast('Ce fichier est une copie d\'élève : seule la version enseignant peut la corriger.', 'err');
+        }
+        if (!Array.isArray(data.devices) || !Array.isArray(data.links)) throw new Error('format');
+        const go = () => {
+          loadTopology(data);
+          S.lab = null; renderTpPanel();
+          toast(`Fichier « ${file.name} » chargé.`, 'ok');
+        };
+        if (S.exam) confirmReplace(go); else go();
+      } catch (e) { toast('Fichier invalide : ce n\'est pas une topologie OptiSim (JSON).', 'err'); }
+    };
+    rd.readAsText(file);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Examen : sujet verrouillé, journal, copie                           */
+  /* ------------------------------------------------------------------ */
+  let lastDiag = null; // dernier diagnostic journalisé (évite les doublons à chaque rafraîchissement)
+  function linkLabel(l) { const A = devById(l.a.dev), B = devById(l.b.dev); return `${A ? A.props.name : '?'} → ${B ? B.props.name : '?'}`; }
+  /** Ajoute une action au journal (seulement pendant un examen). */
+  function logJ(k, txt, extra) {
+    if (!S.exam) return;
+    if (k === 'diag') { if (lastDiag === extra.id) return; lastDiag = extra.id; }
+    if (S.journal.length >= 3000) return;
+    S.journal.push(Object.assign({ t: new Date().toISOString(), k, txt }, extra || {}));
+    saveExamState();
+  }
+  function saveExamState() {
+    if (S.exam) store.set(EXAM_KEY, X.encode({ exam: S.exam, start: S.examStart, journal: S.journal }));
+  }
+  function restoreExamState() {
+    const raw = store.get(EXAM_KEY);
+    if (!raw) return;
+    try { const o = X.decode(raw); S.exam = o.exam; S.examStart = o.start; S.journal = o.journal || []; document.body.classList.add('exam-locked'); }
+    catch (e) { store.del(EXAM_KEY); }
+  }
+  /** Bloque les modifications de structure pendant un examen. */
+  function locked() {
+    if (!S.exam) return false;
+    toast('Examen en cours : la topologie est verrouillée (mesures, interventions et réglages seulement).', 'warn');
+    return true;
+  }
+  function startExam(exam) {
+    S.exam = exam;
+    S.examStart = new Date().toISOString();
+    S.journal = [];
+    S.lab = null; renderTpPanel();
+    S.topo = { devices: [], links: [] };
+    loadTopology(exam.topo, { undoable: false });
+    S.undo = []; S.redo = [];
+    logJ('debut', `Ouverture du sujet « ${exam.title} »`);
+    document.body.classList.add('exam-locked');
+    setMode('test');
+    renderExamBar();
+    showConsignes();
+  }
+  function endExam() {
+    if (!S.exam) return;
+    S.exam = null; S.examStart = null; S.journal = [];
+    store.del(EXAM_KEY);
+    document.body.classList.remove('exam-locked');
+    renderExamBar();
+  }
+  function examElapsed() { return S.examStart ? Math.floor((Date.now() - Date.parse(S.examStart)) / 60000) : 0; }
+  function renderExamBar() {
+    const g = $('#examGroup');
+    g.hidden = !S.exam;
+    if (!S.exam) return;
+    const el = examElapsed();
+    const left = S.exam.duree ? S.exam.duree - el : null;
+    const tag = $('#examTag');
+    tag.textContent = left === null ? `Examen · ${el} min` : left > 0 ? `Examen · reste ${left} min` : 'Examen · temps écoulé';
+    tag.classList.toggle('late', left !== null && left <= 0);
+    if (left !== null && left <= 0 && !S.exam.lateWarned) { S.exam.lateWarned = true; toast('Temps écoulé : rendez votre copie.', 'warn'); }
+  }
+  function showConsignes() {
+    if (!S.exam) return;
+    const e = S.exam;
+    openModal(`Examen — ${e.title}`, `${e.consignes ? `<p class="pre">${esc(e.consignes)}</p>` : ''}
+      <ul class="small">
+        <li>Durée : ${e.duree ? e.duree + ' min' : 'libre'}.</li>
+        <li>La topologie est <b>verrouillée</b> : vous ne pouvez ni ajouter, ni supprimer, ni déplacer d'équipement.</li>
+        <li>Localisez chaque défaut avec le <b>photomètre</b>, l'<b>OTDR</b>, le <b>VFL</b> et le diagnostic de l'onglet <b>« Configuration »</b>.</li>
+        <li>Pour remettre en état un câble ou un équipement : mode <b>« ${esc(MODE_LABELS.fault)} »</b>, sélection de l'élément, bouton d'intervention. Chaque intervention inutile est pénalisée.</li>
+        <li>Vos mesures et interventions sont enregistrées. À la fin, cliquez sur <b>« Rendre ma copie »</b> et remettez le fichier à votre enseignant.</li>
+      </ul>`, [{ label: 'Commencer', primary: true, action: closeModal }]);
+  }
+  function submitCopy() {
+    if (!S.exam) return;
+    let prev = {};
+    try { prev = JSON.parse(store.get('optisim-eleve') || '{}'); } catch (e) { prev = {}; }
+    openModal('Rendre ma copie', `<p>Votre copie contient la topologie dans son état actuel et le journal de vos actions.</p>
+      <div class="form-grid"><label>Nom<input type="text" id="cpNom" value="${esc(prev.nom || '')}" autocomplete="off"></label><label>Prénom<input type="text" id="cpPrenom" value="${esc(prev.prenom || '')}" autocomplete="off"></label><label>Classe<input type="text" id="cpClasse" value="${esc(prev.classe || '')}" autocomplete="off"></label></div>
+      <p class="muted small">Le fichier « copie-….json » est enregistré dans le dossier Téléchargements : remettez-le à votre enseignant (clé USB, ENT…). Vous pouvez continuer puis rendre une nouvelle copie : l'enseignant corrige la plus récente.</p>`, [
+      { label: 'Annuler', action: closeModal },
+      { label: 'Enregistrer ma copie', primary: true, action: () => {
+        const eleve = { nom: $('#cpNom').value.trim(), prenom: $('#cpPrenom').value.trim(), classe: $('#cpClasse').value.trim() };
+        if (!eleve.nom) { toast('Indiquez votre nom.', 'err'); return; }
+        store.set('optisim-eleve', JSON.stringify(eleve));
+        logJ('rendu', 'Copie rendue');
+        const file = X.makeCopie(S.exam, S.topo, S.journal, eleve);
+        download(JSON.stringify(file), `copie-${slug(eleve.nom)}-${slug(eleve.prenom)}-${slug(S.exam.title)}.json`);
+        closeModal();
+        toast('Copie enregistrée dans Téléchargements. Remettez-la à votre enseignant.', 'ok');
+      } }
+    ]);
+    setTimeout(() => { const i = $('#cpNom'); if (i && !i.value) i.focus(); }, 30);
+  }
+
+  
+
+  /* ------------------------------------------------------------------ */
+  /*  Barre d'état, notifications                                         */
+  /* ------------------------------------------------------------------ */
+  function renderStatus() {
+    $('#sbMode').textContent = MODE_LABELS[S.mode];
+    $('#sbMode').className = 'sb-mode m-' + S.mode;
+    let hint = '';
+    if (S.tool && S.tool.kind === 'cable') hint = S.cableStart ? `Câblage ${CABLES[S.tool.type].short} : cliquez sur l'équipement d'arrivée (aval) — Échap pour annuler` : `Câblage ${CABLES[S.tool.type].short} : cliquez sur l'équipement de départ (amont)`;
+    else if (S.tool && S.tool.kind === 'pm') hint = 'Photomètre : cliquez sur un équipement pour mesurer la puissance optique';
+    else if (S.tool && S.tool.kind === 'otdr') hint = 'OTDR : cliquez sur l\'équipement visé (le tir part de la tête de réseau)';
+    else if (S.tool && S.tool.kind === 'vfl') hint = 'VFL : cliquez sur l\'équipement où injecter la lumière rouge';
+    else if (S.mode === 'fault') hint = TEACHER && !S.exam ? 'Sélectionnez un câble ou un équipement pour injecter / réparer une panne (pannes de configuration : onglet Configuration)' : 'Localisez le défaut par la mesure, sélectionnez l\'élément puis « Intervenir » (erreurs de configuration : onglet Configuration)';
+    else if (S.mode === 'test') hint = 'Choisissez un instrument de mesure dans la boîte à outils';
+    else hint = 'Glissez des équipements · choisissez un câble pour relier · molette = zoom · glisser le fond = déplacer';
+    $('#sbHint').textContent = hint;
+    const n = S.topo.devices.filter(d => !isContainer(d)).length;
+    $('#sbInfo').textContent = `${n} équipement(s) · ${S.topo.links.length} câble(s) · zoom ${Math.round(S.view.k * 100)} %`;
+    $('#btnUndo').disabled = !S.undo.length;
+    $('#btnRedo').disabled = !S.redo.length;
+  }
+
+  function toast(msg, kind = '') {
+    const t = document.createElement('div');
+    t.className = 'toast ' + kind;
+    t.textContent = msg;
+    $('#toasts').appendChild(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, 3600);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Branchements globaux                                                */
+  /* ------------------------------------------------------------------ */
+  function bindGlobal() {
+    $('#btnNew').addEventListener('click', () => confirmReplace(() => { S.lab = null; renderTpPanel(); loadTopology({ devices: [], links: [] }); toast('Nouvelle topologie.'); }));
+    $('#btnOpen').addEventListener('click', () => $('#fileInput').click());
+    $('#fileInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ''; });
+    $('#btnSave').addEventListener('click', saveFile);
+    $('#btnUndo').addEventListener('click', undo);
+    $('#btnRedo').addEventListener('click', redo);
+    $$('#modeSwitch button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+    
+    $('#btnExamInfo').addEventListener('click', showConsignes);
+    $('#btnSubmit').addEventListener('click', submitCopy);
+    $('#btnLabs').addEventListener('click', () => openLabs());
+    $('#btnEmptyLabs').addEventListener('click', () => openLabs());
+    $('#btnDocs').addEventListener('click', () => openDocs());
+    $('#btnTheme').addEventListener('click', () => {
+      const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = t;
+      store.set('optisim-theme', t);
+      renderInspector();
+    });
+    $$('.tabs button').forEach(b => b.addEventListener('click', () => { S.tab = b.dataset.tab; lastDiag = null; renderInspector(); }));
+    $('#zoomIn').addEventListener('click', () => { const r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.2); });
+    $('#zoomOut').addEventListener('click', () => { const r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / 1.2); });
+    $('#zoomFit').addEventListener('click', fitView);
+    window.addEventListener('resize', () => { if (S.tab === 'otdr') drawOtdr(); });
+
+    document.addEventListener('keydown', e => {
+      const tag = (e.target.tagName || '').toLowerCase();
+      const typing = tag === 'input' || tag === 'select' || tag === 'textarea';
+      if (e.key === 'Escape') {
+        if (!modal.hidden) return closeModal();
+        if (S.cableStart) { S.cableStart = null; render(); renderStatus(); return; }
+        if (S.tool) return setTool(null);
+        return select(null);
+      }
+      if (!modal.hidden) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return saveFile(); }
+      if (typing) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); return e.shiftKey ? redo() : undo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); return redo(); }
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); return deleteSelection(); }
+      if (e.key === 'f' || e.key === 'F') return fitView();
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Démarrage                                                           */
+  /* ------------------------------------------------------------------ */
+  function init() {
+    if (!TEACHER) {
+      MODE_LABELS.fault = 'Dépannage';
+      $('#modeSwitch [data-mode="fault"]').textContent = 'Dépannage';
+    }
+    $('#edition').textContent = TEACHER ? 'Version enseignant' : 'Version élève';
+    document.body.classList.add(TEACHER ? 'ed-enseignant' : 'ed-eleve');
+    const th = store.get('optisim-theme');
+    if (th) document.documentElement.dataset.theme = th;
+    else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.dataset.theme = 'light';
+    buildPalette();
+    bindGlobal();
+    let restored = false;
+    const saved = store.get(STORE_KEY);
+    if (saved) {
+      try { const t = JSON.parse(saved); if (t.devices && t.devices.length) { S.topo = normalize(t); restored = true; } } catch (e) { /* ignore */ }
+    }
+    if (restored) restoreExamState();
+    refresh();
+    renderExamBar();
+    setInterval(renderExamBar, 30000);
+    if (restored) { requestAnimationFrame(fitView); toast(S.exam ? `Examen « ${S.exam.title} » repris.` : 'Session précédente restaurée.'); }
+  }
+  init();
+})();

@@ -1,0 +1,405 @@
+<!doctype html>
+<!-- OptiSim FTTx Lab — TP complémentaires imprimables — Auteur : Hassami COMPAORE -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TP complémentaires OptiSim</title>
+<meta name="author" content="Hassami COMPAORE">
+<style>
+  :root { --ink:#0f172a; --muted:#475569; --line:#cbd5e1; --soft:#f1f5f9; --brand:#0f766e; --warn:#b45309; --warn-soft:#fef3c7; --err:#b91c1c; --err-soft:#fee2e2; --blue:#1d4ed8; --prof:#7c3aed; --prof-soft:#f3e8ff; }
+  * { box-sizing:border-box; }
+  html { background:#e2e8f0; }
+  body { margin:0; font:10pt/1.36 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:var(--ink); background:#e2e8f0; }
+  .toolbar { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:center; padding:10px 16px; background:#0f172a; color:#fff; font-size:10.5pt; }
+  .toolbar button { font:inherit; font-weight:600; padding:6px 14px; border-radius:6px; border:0; background:#22c55e; color:#052e16; cursor:pointer; }
+  .toolbar label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+  body.no-prof .prof { display:none; }
+  .sheet { width:210mm; min-height:297mm; margin:12px auto; padding:13mm 15mm 16mm; background:#fff; box-shadow:0 2px 10px #0002; position:relative; }
+  @media (max-width:820px) { .sheet { width:auto; min-height:0; margin:12px 16px; padding:20px 16px; } }
+  h1,h2,h3 { line-height:1.2; margin:0 0 .5em; }
+  h2 { font-size:16pt; color:var(--brand); border-bottom:2px solid var(--brand); padding-bottom:4px; }
+  .prof h2 { color:var(--prof); border-color:var(--prof); }
+  h3 { font-size:12.5pt; margin-top:1em; }
+  p { margin:.4em 0 .7em; }
+  ul,ol { margin:.3em 0 .8em; padding-left:1.4em; }
+  li { margin:.15em 0; }
+  table { width:100%; border-collapse:collapse; margin:.5em 0 1em; font-size:9.5pt; }
+  th,td { border:1px solid var(--line); padding:3px 6px; text-align:left; vertical-align:top; }
+  th { background:var(--soft); }
+  .num { text-align:right; white-space:nowrap; }
+  td.blank { height:6.5mm; }
+  .btnlike { display:inline-block; font-weight:600; font-size:9.5pt; border:1px solid var(--line); border-radius:5px; padding:0 6px; background:var(--soft); white-space:nowrap; }
+  .meta { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:9.5pt; color:var(--muted); margin:-4px 0 10px; }
+  .meta b { color:var(--ink); }
+  .ident { display:flex; flex-wrap:wrap; gap:4px 18px; font-size:10pt; border:1px solid var(--line); border-radius:6px; padding:6px 10px; margin-bottom:10px; }
+  .box { border:1px solid var(--line); border-left:5px solid var(--brand); background:#f8fafc; border-radius:6px; padding:8px 12px; margin:.6em 0 1em; }
+  .box.tip { border-left-color:var(--blue); }
+  .box.warn { border-left-color:var(--warn); background:var(--warn-soft); }
+  .box.err { border-left-color:var(--err); background:var(--err-soft); }
+  .box.prof-box { border-left-color:var(--prof); background:var(--prof-soft); }
+  .box > :first-child { margin-top:0; } .box > :last-child { margin-bottom:0; }
+  .steps { counter-reset:s; list-style:none; padding-left:0; }
+  .steps > li { counter-increment:s; position:relative; padding-left:32px; margin:.4em 0; }
+  .steps > li::before { content:counter(s); position:absolute; left:0; top:0; width:23px; height:23px; border-radius:50%; background:var(--brand); color:#fff; font-weight:700; font-size:9.5pt; display:flex; align-items:center; justify-content:center; }
+  .q { margin:.6em 0 .2em; font-weight:600; }
+  .answer { border-bottom:1px dotted #94a3b8; height:6.5mm; }
+  .chain { display:flex; flex-wrap:wrap; align-items:center; gap:4px; font-size:9.5pt; margin:.5em 0 1em; }
+  .chain span { border:1.5px solid var(--ink); border-radius:5px; padding:3px 7px; background:#fff; font-weight:600; }
+  .chain i { font-style:normal; color:var(--muted); font-size:8.5pt; }
+  .tag { display:inline-block; font-size:8.5pt; font-weight:700; border-radius:10px; padding:1px 8px; background:var(--soft); border:1px solid var(--line); }
+  .cover { display:flex; flex-direction:column; justify-content:space-between; }
+  .foot { position:absolute; left:16mm; right:16mm; bottom:8mm; display:flex; justify-content:space-between; font-size:8pt; color:var(--muted); border-top:1px solid var(--line); padding-top:3px; }
+  @media (max-width:820px) { .foot { position:static; margin-top:16px; } }
+  figure.shot { margin:.5em 0 .9em; break-inside:avoid; page-break-inside:avoid; text-align:center; }
+  figure.shot img { display:inline-block; max-width:100%; max-height:118mm; width:auto; height:auto; border:1px solid var(--line); border-radius:6px; box-shadow:0 1px 4px #0001; }
+  figure.shot figcaption { font-size:8.5pt; color:var(--muted); margin-top:3px; font-style:italic; }
+  .side { display:grid; grid-template-columns:1fr 66mm; gap:12px; align-items:start; }
+  .side > figure.shot { margin-top:0; }
+  .side figure.shot img { max-height:105mm; }
+  .shots2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+  .shots2 figure.shot img { max-height:205mm; }
+  @media (max-width:600px) { .side, .shots2 { grid-template-columns:1fr; } }
+  .score { float:right; font-size:10pt; border:1.5px solid var(--ink); border-radius:6px; padding:2px 10px; }
+
+  @page { size:A4; margin:0; }
+  @media print {
+    html, body { background:#fff; }
+    .toolbar { display:none; }
+    .sheet { margin:0; box-shadow:none; width:210mm; min-height:297mm; break-after:page; page-break-after:always; }
+    .sheet:last-child { break-after:auto; page-break-after:auto; }
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  TP complémentaires 6 à 9 et 12 — format A4
+  <button onclick="window.print()">Imprimer / enregistrer en PDF</button>
+</div>
+
+<!-- ============================ COUVERTURE ============================ -->
+<section class="sheet cover">
+  <div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <svg viewBox="0 0 32 32" width="64" height="64" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0b1220"/><path d="M4 22 C12 22 12 10 20 10 S28 16 28 16" stroke="#22c55e" stroke-width="3" fill="none"/><circle cx="4" cy="22" r="3" fill="#eab308"/><circle cx="28" cy="16" r="2.5" fill="#22c55e"/></svg>
+      <div><h1 style="font-size:28pt;margin:0">OptiSim FTTx Lab</h1><div style="font-size:14pt;color:var(--muted)">Travaux pratiques complémentaires — TP 6 à 9 et TP 12</div></div>
+    </div>
+    <p style="margin-top:12mm;font-size:12pt">Ces TP prolongent les 7 TP intégrés au simulateur. Ils entraînent l'élève à <b>construire seul</b> un réseau, à <b>dimensionner</b> une liaison, à <b>mesurer</b> comme un technicien et à <b>dépanner</b> méthodiquement. Toutes les valeurs des corrigés ont été calculées avec le moteur du simulateur.</p>
+
+    <table style="margin-top:8mm">
+      <tr><th>TP</th><th>Sujet</th><th>Niveau</th><th>Durée</th><th>Point de départ</th></tr>
+      <tr><td><b>6</b></td><td>Construire une liaison FTTH de A à Z</td><td>Découverte</td><td>1 h</td><td>Canevas vide</td></tr>
+      <tr><td><b>7</b></td><td>Ingénierie : coupleur, distance, longueur d'onde, erreurs d'installation</td><td>Intermédiaire</td><td>1 h 30</td><td>Fichier du TP 6</td></tr>
+      <tr><td><b>8</b></td><td>Campagne de mesures dans un immeuble</td><td>Intermédiaire</td><td>1 h 30</td><td>TP 3 intégré (correction)</td></tr>
+      <tr><td><b>9</b></td><td>Dépannage sur sujet : fiche d'intervention</td><td>Avancé</td><td>2 h</td><td>Sujet de l'enseignant (réseau du TP 6)</td></tr>
+      <tr><td><b>12</b></td><td>Dépannage des services : pannes de configuration sur sujet</td><td>Avancé</td><td>1 h 30</td><td>Exemple « FTTH triple play configuré » puis sujet de l'enseignant</td></tr>
+    </table>
+    <p><b>Prérequis :</b> livret de tutoriels (fichier <code>tutoriels-imprimables.html</code>), au moins les tutoriels 1 à 6 ; tutoriels 11 et 12 pour le TP 12 (après le TP intégré 10).</p>
+  </div>
+<div class="foot"><span>OptiSim FTTx Lab — TP complémentaires</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ TP 6 ============================ -->
+<section class="sheet">
+  <h2>TP 6 — Construire une liaison FTTH de A à Z</h2>
+  <div class="meta"><span class="tag">Découverte</span><span><b>Durée :</b> 1 h</span><span><b>Architecture :</b> FTTH pavillonnaire (sans bâtiment)</span></div>
+  <div class="ident">Nom : ....................................... Prénom : ....................................... Classe : ........ Date : ............</div>
+
+  <div class="box"><p><b>Situation professionnelle :</b> votre entreprise doit raccorder un nouvel abonné. Le NRO, le SRO et la PTO sont posés mais rien n'est câblé. Vous devez réaliser le câblage complet, calculer le bilan optique puis le vérifier par la mesure.</p></div>
+  <p><b>Objectifs :</b> placer et régler des équipements · câbler dans le sens amont → aval · calculer un bilan et une marge · mesurer au photomètre · sauvegarder son travail.</p>
+
+  <h3>Partie A — Construction (20 min)</h3>
+  <div class="side">
+  <ol class="steps">
+    <li>Cliquez sur <span class="btnlike">Nouveau</span>. Placez de gauche à droite : OLT, ODF, SRO / PM, PTO, ONT. Nommez-les « OLT NRO », « ODF NRO », « SRO », « PTO Client », « ONT Client ».</li>
+    <li>Vérifiez les réglages : OLT <b>+4 dBm</b>, <b>1490 nm</b> ; SRO <b>coupleur 1:8</b>.</li>
+    <li>Réalisez le câblage ci-dessous. Pour chaque câble, choisissez l'outil dans <b>Câbles &amp; jarretières</b>, cliquez sur l'équipement <b>amont</b> puis sur l'équipement <b>aval</b>, et remplissez la fenêtre comme ci-contre.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/tp-complementaires/tp6-cable-g652d.jpg" alt="Fenêtre Nouveau câble pour le G.652D de l'ODF NRO vers le SRO : 2 km, épissure fusion aux deux extrémités">
+    <figcaption>Exemple : le câble G.652D ODF → SRO (2 km, fusion aux deux extrémités).</figcaption>
+  </figure>
+  </div>
+  <div class="chain"><span>OLT NRO</span><i>jarretière 2 m SC/APC</i><span>ODF NRO</span><i>G.652D 2 km · fusion / fusion</i><span>SRO 1:8</span><i>drop 80 m · fusion / fusion</i><span>PTO Client</span><i>jarretière 2 m SC/APC</i><span>ONT Client</span></div>
+  <ol class="steps" start="4" style="counter-reset:s 3">
+    <li>Ajoutez un <b>routeur Wi-Fi</b> relié à l'ONT, puis un <b>PC</b> relié au routeur, en câble <b>Ethernet Cat6</b> (5 m).</li>
+    <li>Vérifiez que tous les badges sont <b>verts</b> et que l'ONT affiche ses voyants <b>Power</b> et <b>PON</b>.</li>
+  </ol>
+
+  <div class="foot"><span>TP 6 — Liaison FTTH de A à Z (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>TP 6 — Construire une liaison FTTH de A à Z (suite)</h2>
+  <h3>Partie B — Bilan prévisionnel (20 min, à la main, avant toute mesure)</h3>
+  <table>
+    <tr><th>Élément</th><th>Calcul</th><th class="num" style="width:28mm">Perte (dB)</th></tr>
+    <tr><td>Traversée de l'ODF</td><td></td><td class="blank"></td></tr>
+    <tr><td>Épissures du câble G.652D</td><td></td><td class="blank"></td></tr>
+    <tr><td>Fibre G.652D à 1490 nm</td><td></td><td class="blank"></td></tr>
+    <tr><td>SRO : brassage + coupleur 1:8</td><td></td><td class="blank"></td></tr>
+    <tr><td>Épissures du drop</td><td></td><td class="blank"></td></tr>
+    <tr><td>Fibre du drop à 1490 nm</td><td></td><td class="blank"></td></tr>
+    <tr><td>Connecteur de la PTO</td><td></td><td class="blank"></td></tr>
+    <tr><th colspan="2">Atténuation totale</th><td class="blank"></td></tr>
+  </table>
+  <p class="q">B1. Pourquoi ne compte-t-on pas les connecteurs des deux jarretières ?</p><div class="answer"></div>
+  <p class="q">B2. Calculez la puissance reçue par l'ONT et la marge par rapport à sa sensibilité (−27 dBm).</p><div class="answer"></div><div class="answer"></div>
+
+  <h3>Partie C — Vérification par la mesure (15 min)</h3>
+  <ol class="steps">
+    <li>Sélectionnez l'ONT, onglet <b>Bilan optique</b> : comparez à votre calcul.</li>
+    <li>Mode <span class="btnlike">Mesure / Test</span>, <b>Photomètre</b> : mesurez la puissance reçue en entrée de chaque équipement.</li>
+  </ol>
+  <table>
+    <tr><th>Point de mesure</th><th>ODF NRO</th><th>SRO</th><th>PTO Client</th><th>ONT Client</th></tr>
+    <tr><td>Puissance mesurée (dBm)</td><td class="blank"></td><td></td><td></td><td></td></tr>
+  </table>
+  <p class="q">C1. L'ONT est-il dans sa plage de fonctionnement [−27 ; −8] dBm ? Que remarquez-vous ?</p><div class="answer"></div>
+  <p class="q">C2. Sauvegardez votre travail sous le nom <code>NOM_Prenom_TP6.json</code> : il servira aux TP 7 et 9. ☐ Fait</p>
+  <div class="foot"><span>TP 6 — Liaison FTTH de A à Z (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ TP 7 ============================ -->
+<section class="sheet">
+  <h2>TP 7 — Ingénierie : coupleur, distance et longueur d'onde</h2>
+  <div class="meta"><span class="tag">Intermédiaire</span><span><b>Durée :</b> 1 h 30</span><span><b>Point de départ :</b> votre fichier du TP 6 (<span class="btnlike">Ouvrir</span>)</span></div>
+  <div class="ident">Nom : ....................................... Prénom : ....................................... Classe : ........ Date : ............</div>
+
+  <div class="box"><p><b>Situation professionnelle :</b> le bureau d'études vous demande jusqu'où l'on peut raccorder des abonnés selon le taux de couplage choisi au SRO, et quelles erreurs d'installation dégradent le plus la liaison.</p></div>
+
+  <h3>Partie A — Influence du coupleur et de la distance</h3>
+  <p>Modifiez le <b>coupleur du SRO</b> (Propriétés) et la <b>longueur du câble G.652D</b> (sélectionner le câble). Pour chaque cas, relevez la puissance reçue par l'ONT (en dBm).</p>
+  <table>
+    <tr><th>Coupleur au SRO</th><th class="num">2 km</th><th class="num">10 km</th><th class="num">20 km</th></tr>
+    <tr><td>1:8 (10,5 dB)</td><td class="blank"></td><td></td><td></td></tr>
+    <tr><td>1:16 (13,8 dB)</td><td class="blank"></td><td></td><td></td></tr>
+    <tr><td>1:32 (17,2 dB)</td><td class="blank"></td><td></td><td></td></tr>
+    <tr><td>1:64 (21,0 dB)</td><td class="blank"></td><td></td><td></td></tr>
+  </table>
+  <p class="q">A1. De combien de dB la puissance baisse-t-elle quand on passe de 2 à 10 km ? Justifiez par le calcul.</p><div class="answer"></div>
+  <p class="q">A2. Pourquoi un opérateur choisit-il malgré tout des coupleurs 1:32 ou 1:64 ?</p><div class="answer"></div>
+  <p class="q">A3. Avec un coupleur 1:64, quelle est la longueur maximale du câble de transport pour garder une marge d'au moins 3 dB (P ≥ −24 dBm) ? Calculez, puis vérifiez dans le simulateur.</p><div class="answer"></div><div class="answer"></div>
+
+  <h3>Partie B — Influence de la longueur d'onde</h3>
+  <p>Remettez <b>1:8</b> et <b>2 km</b>. Changez la longueur d'onde de l'OLT et relevez la puissance reçue :</p>
+  <table><tr><th>λ</th><th class="num">1310 nm</th><th class="num">1490 nm</th><th class="num">1550 nm</th></tr><tr><td>P reçue (dBm)</td><td class="blank"></td><td></td><td></td></tr></table>
+  <p class="q">B1. Quelle longueur d'onde est la moins atténuée ? Pourquoi l'écart est-il faible ici ?</p><div class="answer"></div>
+
+  <div class="foot"><span>TP 7 — Ingénierie (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>TP 7 — Ingénierie (suite)</h2>
+  <h3>Partie C — Trop de puissance : la saturation</h3>
+  <div class="side">
+  <div>
+  <p>Remettez 1490 nm. Sélectionnez le SRO et passez son <b>Coupleur intégré</b> sur <b>« none »</b> (aucun coupleur), comme sur la capture ci-contre. C'est aussi là que vous avez changé le coupleur dans la partie A.</p>
+  <p class="q">C1. Puissance reçue et statut de l'ONT ? Expliquez.</p><div class="answer"></div><div class="answer"></div>
+  <p class="q">C2. Proposez une solution technique. Remettez ensuite 1:8.</p><div class="answer"></div><div class="answer"></div>
+  </div>
+  <figure class="shot">
+    <img src="docs/captures/tp-complementaires/tp7-sro-coupleur.jpg" alt="Inspecteur du SRO : champ Coupleur intégré réglé sur 1:8">
+    <figcaption>Propriétés du SRO : le champ « Coupleur intégré ».</figcaption>
+  </figure>
+  </div>
+
+  <h3>Partie D — Erreurs d'installation</h3>
+  <div class="side">
+  <ol>
+    <li>Sélectionnez la jarretière PTO → ONT et passez ses connecteurs en <b>SC/UPC</b>. Relevez la puissance et lisez l'avertissement. Remettez SC/APC.</li>
+    <li>Sélectionnez le câble G.652D et changez son <b>port amont</b> sur l'ODF (Aval 2 au lieu de Aval 1), dans la section <b>Raccordement</b> de l'inspecteur (capture ci-contre). Observez. Remettez le port 1.</li>
+    <li>Passez le câble Cat6 routeur → PC à <b>120 m</b>. Observez. Remettez 5 m.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/tp-complementaires/tp7-ports-cable.jpg" alt="Inspecteur du câble G.652D : section Raccordement avec Port amont Aval 1 et Port aval Entrée 1">
+    <figcaption>Inspecteur du câble G.652D : choix des ports amont et aval.</figcaption>
+  </figure>
+  </div>
+  <table>
+    <tr><th>Erreur</th><th>Puissance / symptôme observé</th><th>Explication</th></tr>
+    <tr><td>Jarretière UPC sur ports APC</td><td class="blank"></td><td></td></tr>
+    <tr><td>Mauvais port sur l'ODF</td><td class="blank"></td><td></td></tr>
+    <tr><td>Cat6 de 120 m</td><td class="blank"></td><td></td></tr>
+  </table>
+  <div class="foot"><span>TP 7 — Ingénierie (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ TP 8 ============================ -->
+<section class="sheet">
+  <h2>TP 8 — Campagne de mesures dans un immeuble</h2>
+  <div class="meta"><span class="tag">Intermédiaire</span><span><b>Durée :</b> 1 h 30</span><span><b>Point de départ :</b> <span class="btnlike">Exemples &amp; TP</span> → TP 3 → <span class="btnlike">Charger la correction (câblage complet)</span></span></div>
+  <div class="ident">Nom : ....................................... Prénom : ....................................... Classe : ........ Date : ............</div>
+
+  <div class="box"><p><b>Situation professionnelle :</b> la Résidence Les Érables (R+3) vient d'être raccordée. Avant la mise en service, vous réalisez la <b>recette</b> : mesures de puissance à chaque point, tir OTDR et contrôle de continuité au VFL. Vos relevés seront joints au dossier de recette.</p></div>
+
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/bibliotheque-tp.jpg" alt="Bibliothèque Exemples et Travaux Pratiques, TP 3 sélectionné, bouton Charger la correction (câblage complet)" style="max-height:78mm">
+    <figcaption>Point de départ : <b>Exemples &amp; TP</b> → TP 3 → « Charger la correction (câblage complet) ».</figcaption>
+  </figure>
+
+  <h3>Partie A — Relevés au photomètre (λ = 1490 nm)</h3>
+  <p>Mode <span class="btnlike">Mesure / Test</span> → <b>Photomètre</b>. Mesurez la puissance reçue par chaque équipement de la branche de l'appartement 101 :</p>
+  <table>
+    <tr><th>Point</th><th>ODF NRO</th><th>PMI sous-sol</th><th>PBO étage 1</th><th>PTO Appt 101</th><th>ONT Appt 101</th></tr>
+    <tr><td>P (dBm)</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>Perte du tronçon précédent (dB)</td><td>—</td><td class="blank"></td><td></td><td></td><td></td></tr>
+  </table>
+  <p class="q">A1. Quel tronçon a la plus forte perte ? Quel élément en est responsable ?</p><div class="answer"></div>
+  <p class="q">A2. Mesurez aussi les ONT des appartements 201 et 301. Pourquoi trouve-t-on presque la même valeur aux 3 étages ?</p><div class="answer"></div><div class="answer"></div>
+
+  <div class="foot"><span>TP 8 — Mesures en immeuble (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>TP 8 — Campagne de mesures dans un immeuble (suite)</h2>
+  <h3>Partie B — Tir OTDR à 1310 nm vers l'ONT Appt 101 (bobine amorce 500 m)</h3>
+  <table>
+    <tr><th>N°</th><th class="num">Distance lue (m)</th><th class="num">Perte (dB)</th><th>Type d'événement</th><th class="num">Distance réelle (m)</th><th>Équipement correspondant</th></tr>
+    <tr><td>1</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>2</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>3</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>4</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>5</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>6</td><td class="blank"></td><td></td><td></td><td></td><td></td></tr>
+  </table>
+  <p class="q">B1. Perte totale mesurée par l'OTDR : .............. dB. Pourquoi diffère-t-elle du bilan affiché sur l'ONT (19,58 dB) ?</p><div class="answer"></div>
+  <p class="q">B2. Quelle est la longueur de la colonne montante entre le PMI et le PBO de l'étage 1 ? Retrouvez-la par le calcul (écart d'étages × hauteur).</p><div class="answer"></div>
+
+  <h3>Partie C — Contrôle de continuité au VFL</h3>
+  <ol>
+    <li>Injectez le VFL sur le <b>PMI</b>, sens aval. Combien de câbles sont éclairés ? .......... Combien de fuites ? ..........</li>
+    <li>Conclusion de la recette : ☐ conforme ☐ non conforme. Justification :</li>
+  </ol>
+  <div class="answer"></div>
+  <div class="foot"><span>TP 8 — Mesures en immeuble (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ TP 9 ============================ -->
+<section class="sheet">
+  <h2>TP 9 — Dépannage sur sujet : fiche d'intervention</h2>
+  <div class="meta"><span class="tag">Avancé</span><span><b>Durée :</b> 2 h</span><span><b>Point de départ :</b> sujet de l'enseignant (réseau du TP 6)</span><span><b>Organisation :</b> binôme : l'un mesure, l'autre remplit la fiche ; rôles inversés à chaque panne</span></div>
+  <div class="ident">Élève A : ....................................... Élève B : ....................................... Classe : ........ Date : ............</div>
+
+  <div class="box"><p><b>Situation professionnelle :</b> un abonné appelle le support : « Internet ne marche plus » ou « la connexion est lente ». Vous intervenez comme technicien de maintenance. Vous ne savez pas où se trouve le défaut : vous ne disposez que de vos instruments.</p></div>
+
+  <h3>Règles du jeu</h3>
+  <div class="side">
+  <ol class="steps">
+    <li><span class="btnlike">Ouvrir</span> le sujet <code>sujet-….json</code> fourni par l'enseignant et lire les consignes. Le réseau est <b>verrouillé</b> ; les pannes sont <b>cachées</b>.</li>
+    <li>Dépanner <b>uniquement avec les instruments</b> (photomètre, OTDR, VFL, voyants, bilan) et remplir la fiche (lignes 1 à 6) <b>avant</b> toute intervention.</li>
+    <li>Mode <span class="btnlike">Dépannage</span> : sélectionner l'élément diagnostiqué, puis <span class="btnlike">Reprendre le câble</span> ou <span class="btnlike">Nettoyer / remplacer</span>.</li>
+    <li><b>Re-mesurer</b> (ligne 7). Si la mesure n'est pas revenue à la référence, le diagnostic était faux : reprendre à la ligne 2. Chaque intervention inutile est pénalisée.</li>
+    <li>Quand toutes les liaisons sont conformes : <span class="btnlike">Rendre ma copie</span>. L'enseignant reçoit le journal de vos mesures et interventions.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/intervention.jpg" alt="Inspecteur d'un câble en mode Dépannage : section Intervention avec le bouton Reprendre le câble">
+    <figcaption>Mode « Dépannage » : intervention sur un câble.</figcaption>
+  </figure>
+  </div>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/examen-barre.jpg" alt="Barre supérieure pendant un examen : mode Dépannage, temps restant, boutons Consignes et Rendre ma copie">
+    <figcaption>Pendant le sujet : temps restant, <b>Consignes</b> et <b>Rendre ma copie</b>.</figcaption>
+  </figure>
+<div class="box tip"><p><b>Valeurs de référence (réseau sain du TP 6) :</b> ODF 4,00 dBm · SRO 2,90 dBm · PTO −8,22 dBm · ONT −8,72 dBm. OTDR 1310 nm : fin de fibre à 2 584 m, coupleur à 2 502 m.</p></div>
+  <div class="foot"><span>TP 9 — Dépannage sur sujet (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>TP 9 — Dépannage sur sujet (suite)</h2>
+
+  <h3>Fiche d'intervention n° 1</h3>
+  <table>
+    <tr><th style="width:32%">1. Symptômes (voyants, statut, P reçue)</th><td class="blank"></td></tr>
+    <tr><th>2. Photomètre de proche en proche</th><td>ODF : ........ SRO : ........ PTO : ........ ONT : ........ dBm</td></tr>
+    <tr><th>3. Tronçon suspect</th><td class="blank"></td></tr>
+    <tr><th>4. OTDR 1310 / 1550 nm</th><td>Événement à .......... m · perte .......... / .......... dB · distance réelle : .......... m</td></tr>
+    <tr><th>5. VFL</th><td>Fuite visible ? ☐ oui ☐ non · où : ..........................</td></tr>
+    <tr><th>6. Diagnostic</th><td class="blank"></td></tr>
+    <tr><th>7. Après intervention : P reçue</th><td>.......... dBm · ☐ conforme</td></tr>
+    <tr><th>Panne réelle (correction)</th><td>.......................................... ☐ diagnostic juste</td></tr>
+  </table>
+
+  <h3>Fiche d'intervention n° 2</h3>
+  <table>
+    <tr><th style="width:32%">1. Symptômes</th><td class="blank"></td></tr>
+    <tr><th>2. Photomètre</th><td>ODF : ........ SRO : ........ PTO : ........ ONT : ........ dBm</td></tr>
+    <tr><th>3. Tronçon suspect</th><td class="blank"></td></tr>
+    <tr><th>4. OTDR 1310 / 1550 nm</th><td>Événement à .......... m · perte .......... / .......... dB · distance réelle : .......... m</td></tr>
+    <tr><th>5. VFL</th><td>Fuite visible ? ☐ oui ☐ non · où : ..........................</td></tr>
+    <tr><th>6. Diagnostic</th><td class="blank"></td></tr>
+    <tr><th>7. Après intervention</th><td>.......... dBm · ☐ conforme</td></tr>
+    <tr><th>Panne réelle (correction)</th><td>.......................................... ☐ diagnostic juste</td></tr>
+  </table>
+  <p class="q">Synthèse : comment distinguer une <b>courbure</b> d'une <b>mauvaise épissure</b> avec l'OTDR ?</p><div class="answer"></div>
+  <div class="foot"><span>TP 9 — Dépannage sur sujet (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ TP 12 ============================ -->
+<section class="sheet" id="tp-12">
+  <h2>TP 12 — Dépannage des services sur sujet</h2>
+  <div class="meta"><span class="tag">Avancé</span><span><b>Durée :</b> 1 h 30</span><span><b>Point de départ :</b> exemple « FTTH triple play configuré », puis sujet de l'enseignant</span><span><b>Organisation :</b> seul ou en binôme</span></div>
+  <div class="ident">Élève A : ....................................... Élève B : ....................................... Classe : ........ Date : ............</div>
+
+  <div class="box"><p><b>Situation professionnelle :</b> la fibre de la Maison Dupont est en bon état, mais l'abonné appelle le support : « la TV ne marche plus », ou « plus rien ne marche depuis hier ». Un réglage a été modifié quelque part entre le routeur de collecte et les appareils. Vous intervenez comme technicien du support : à vous de trouver l'erreur de configuration et de la corriger.</p></div>
+
+  <h3>Partie A — Relevé de référence (réseau sain)</h3>
+  <p>Chargez l'exemple, onglet <span class="btnlike">Configuration</span>. Notez les valeurs du réseau qui fonctionne : elles vous serviront de point de comparaison.</p>
+  <table>
+    <tr><th style="width:42%">Valeur</th><th>Relevé</th></tr>
+    <tr><td>Puissance reçue par l'ONT Dupont</td><td>.......... dBm</td></tr>
+    <tr><td>Numéro de série de l'ONT · profil déclaré sur l'OLT</td><td>.................................... · ....................................</td></tr>
+    <tr><td>Mode d'accès du routeur de collecte · identifiant PPPoE</td><td>.................... · ....................................</td></tr>
+    <tr><td>VLAN Internet / TV / VoIP (OLT, collecte, Box)</td><td>........ / ........ / ........</td></tr>
+    <tr><td>Adresse WAN de la Box</td><td>....................................</td></tr>
+    <tr><td>Adresses du PC, du décodeur, du téléphone · passerelle</td><td>.................. · .................. · .................. · ..................</td></tr>
+    <tr><td>Débit maximal du PC (↓ / ↑)</td><td>.......... / .......... Mbit/s</td></tr>
+  </table>
+
+  <h3>Partie B — Règles du jeu</h3>
+  <ol class="steps">
+    <li><span class="btnlike">Ouvrir</span> le sujet <code>sujet-….json</code> donné par l'enseignant (une panne de configuration cachée par sujet, ou plusieurs).</li>
+    <li>Dépanner avec le <b>diagnostic des appareils</b> et en <b>lisant les configurations</b> ; comparer avec le relevé de la partie A. Remplir la fiche avant de modifier un réglage.</li>
+    <li>Corriger la valeur dans l'onglet <span class="btnlike">Configuration</span>, puis vérifier que les services reviennent. Le message <b>« Panne de configuration corrigée… Bravo ! »</b> confirme si l'enseignant l'a prévu.</li>
+    <li>À la fin : <span class="btnlike">Rendre ma copie</span> (journal de vos diagnostics et réglages).</li>
+  </ol>
+<div class="box tip"><p><b>Méthode :</b> 1. quels appareils sont en défaut (un seul service ou tous) ? 2. quelle étape du diagnostic ? 3. quels équipements interviennent à cette étape ? 4. comparer leurs réglages avec le relevé de référence.</p></div>
+  <div class="foot"><span>TP 12 — Dépannage des services (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>TP 12 — Dépannage des services (suite)</h2>
+  <h3>Fiche d'intervention n° 1</h3>
+  <table>
+    <tr><th style="width:36%">1. Appareils en défaut (services)</th><td class="blank"></td></tr>
+    <tr><th>2. Étape du diagnostic en défaut</th><td class="blank"></td></tr>
+    <tr><th>3. Symptôme affiché</th><td class="blank"></td></tr>
+    <tr><th>4. Équipements vérifiés</th><td class="blank"></td></tr>
+    <tr><th>5. Réglage erroné trouvé (valeur lue → bonne valeur)</th><td class="blank"></td></tr>
+    <tr><th>6. Vérification : services rétablis ?</th><td>☐ oui ☐ non · message « corrigée » ☐</td></tr>
+  </table>
+  <h3>Fiche d'intervention n° 2</h3>
+  <table>
+    <tr><th style="width:36%">1. Appareils en défaut (services)</th><td class="blank"></td></tr>
+    <tr><th>2. Étape du diagnostic en défaut</th><td class="blank"></td></tr>
+    <tr><th>3. Symptôme affiché</th><td class="blank"></td></tr>
+    <tr><th>4. Équipements vérifiés</th><td class="blank"></td></tr>
+    <tr><th>5. Réglage erroné trouvé (valeur lue → bonne valeur)</th><td class="blank"></td></tr>
+    <tr><th>6. Vérification : services rétablis ?</th><td>☐ oui ☐ non · message « corrigée » ☐</td></tr>
+  </table>
+  <h3>Fiche d'intervention n° 3</h3>
+  <table>
+    <tr><th style="width:36%">1. Appareils en défaut (services)</th><td class="blank"></td></tr>
+    <tr><th>2. Étape en défaut · symptôme</th><td class="blank"></td></tr>
+    <tr><th>3. Réglage erroné trouvé</th><td class="blank"></td></tr>
+    <tr><th>4. Vérification</th><td>☐ services rétablis · message « corrigée » ☐</td></tr>
+  </table>
+  <p class="q">1. Un seul appareil est en défaut alors que les deux autres fonctionnent. Quelles étapes du diagnostic peut-on écarter d'emblée ? Pourquoi ?</p><div class="answer"></div><div class="answer"></div>
+  <p class="q">2. Pourquoi faut-il toujours vérifier la liaison optique avant de chercher une erreur de configuration ?</p><div class="answer"></div>
+  <div class="foot"><span>TP 12 — Dépannage des services (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+</body>
+</html>

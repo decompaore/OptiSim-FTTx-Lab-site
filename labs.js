@@ -1,0 +1,738 @@
+/* =====================================================================
+ * OptiSim FTTx Lab — labs.js
+ * Auteur : Hassami COMPAORE
+ * Contenu pédagogique embarqué : documentation / cours FTTx,
+ * bibliothèque de 7 TP prêts à l'emploi et topologies d'exemple.
+ * ===================================================================== */
+(function (global) {
+  'use strict';
+  /** Version élève : consignes sans les outils réservés à l'enseignant (voir edition.js). */
+  const ELEVE = !!(global.OptiEdition && global.OptiEdition.role === 'eleve');
+  const { CATALOG, CABLES, mduLevels, deviceSize } = global.OptiPhysics;
+
+  /* ------------------------------------------------------------------ */
+  /*  Petit constructeur de topologies                                    */
+  /* ------------------------------------------------------------------ */
+  class Topo {
+    constructor() { this.devices = []; this.links = []; this.n = 0; }
+    dev(type, x, y, props = {}, extra = {}) {
+      const id = type + '-' + (++this.n);
+      const d = Object.assign({ id, type, x, y, props: Object.assign(JSON.parse(JSON.stringify(CATALOG[type].defaults)), props) }, extra);
+      if (type === 'ont' && !d.props.sn) d.props.sn = global.OptiPhysics.autoSerial(id);
+      this.devices.push(d);
+      return id;
+    }
+    get(id) { return this.devices.find(d => d.id === id); }
+    /** Place un équipement centré verticalement dans un étage d'immeuble. */
+    inFloor(bld, floor, type, x, props = {}) {
+      const b = this.get(bld);
+      const lv = mduLevels(b).find(l => l.floor === floor);
+      const tmp = { type, props: Object.assign({}, CATALOG[type].defaults, props) };
+      const h = deviceSize(tmp).h;
+      return this.dev(type, b.x + x, Math.round(lv.y0 + (lv.y1 - lv.y0 - h) / 2 - 6), props);
+    }
+    link(type, a, ap, b, bp, opts = {}) {
+      const id = 'L' + (++this.n);
+      this.links.push(Object.assign({ id, type, a: { dev: a, port: ap }, b: { dev: b, port: bp } }, JSON.parse(JSON.stringify(CABLES[type].defaults)), opts));
+      return id;
+    }
+    json() { return { version: 1, devices: this.devices, links: this.links }; }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  TOPOLOGIES DES TP                                                   */
+  /* ------------------------------------------------------------------ */
+
+  function tp1(full) {
+    const t = new Topo();
+    const sw = t.dev('switch', 60, 250, { name: 'Switch cœur NRO', role: 'coeur', txPower: -3, wavelength: 1310, sfpPorts: 2, ethPorts: 4 });
+    const odf = t.dev('odf', 300, 220, { name: 'ODF de tête NRO', ports: 12 });
+    const bat = t.dev('bld_simple', 640, 150, { name: 'Bâtiment administratif (Mairie)', kind: 'Bâtiment administratif', gaineLength: 0 }, { w: 640, h: 320 });
+    const odfB = t.dev('odf_int', 680, 230, { name: 'ODF d\'entrée', ports: 12 });
+    const swC = t.dev('switch', 920, 255, { name: 'Switch client', role: 'acces', txPower: -3, sensitivity: -20, overload: -3, wavelength: 1310, sfpPorts: 1, ethPorts: 4 });
+    const pc = t.dev('pc', 1130, 230, { name: 'PC secrétariat' });
+    const ph = t.dev('phone', 1130, 340, { name: 'Tél. IP accueil' });
+    t.link('patch', sw, 0, odf, 0, { length: 2 });
+    t.link('smf', odf, 0, odfB, 0, { length: 4000, fibers: 12 });
+    if (full) {
+      t.link('patch', odfB, 0, swC, 0, { length: 3 });
+      t.link('cat6', swC, 1, pc, 0, { length: 12 });
+      t.link('cat6', swC, 2, ph, 0, { length: 8 });
+    }
+    void bat;
+    return t.json();
+  }
+
+  function tp2(full) {
+    const t = new Topo();
+    const olt = t.dev('olt', 40, 300, { name: 'OLT NRO', txPower: 4, wavelength: 1490 });
+    const odf = t.dev('odf', 220, 260, { name: 'ODF NRO' });
+    const sro = t.dev('sro', 470, 250, { name: 'SRO Quartier Nord', splitter: '1:32', outPorts: 32 });
+    const pbo = t.dev('pbo_ext', 730, 290, { name: 'PBO poteau P12', capacity: 8, mount: 'Aérien (poteau)' });
+    t.dev('bld_simple', 960, 170, { name: 'Villa Les Tilleuls', kind: 'Villa / Pavillon', gaineLength: 15 }, { w: 660, h: 320 });
+    const pto = t.dev('pto', 1000, 300, { name: 'PTO salon' });
+    const ont = t.dev('ont', 1170, 290, { name: 'ONT Villa' });
+    const rtr = t.dev('router', 1340, 230, { name: 'Routeur Wi-Fi' });
+    const pc = t.dev('pc', 1490, 210, { name: 'PC bureau' });
+    const tv = t.dev('tv', 1490, 340, { name: 'Décodeur TV' });
+    t.link('patch', olt, 0, odf, 0, { length: 2 });
+    t.link('smf', odf, 0, sro, 0, { length: 3000, fibers: 48 });
+    t.link('smf', sro, 0, pbo, 0, { length: 800, fibers: 12 });
+    if (full) {
+      t.link('drop', pbo, 0, pto, 0, { length: 45 });
+      t.link('patch', pto, 0, ont, 0, { length: 2 });
+    }
+    t.link('cat6', ont, 0, rtr, 0, { length: 2 });
+    t.link('cat6', rtr, 0, pc, 0, { length: 6 });
+    t.link('cat6', rtr, 1, tv, 0, { length: 3 });
+    return t.json();
+  }
+
+  function mduTopo(full, opts) {
+    const t = new Topo();
+    const olt = t.dev('olt', 30, 760, { name: 'OLT NRO', txPower: 4, wavelength: 1490 });
+    const odf = t.dev('odf', 210, 730, { name: 'ODF NRO' });
+    const b = t.dev('bld_mdu', 520, 40, { name: opts.name, usage: 'Résidentiel', floors: 3, basement: true, floorHeight: 3 }, { w: 760, floorPx: 170 });
+    const pmi = t.inFloor(b, -1, 'pmi', 110, { name: 'PMI sous-sol', splitter: opts.splitter, outPorts: 12 });
+    const pbo = {}, pto = {}, ont = {};
+    for (const f of [1, 2, 3]) {
+      pbo[f] = t.inFloor(b, f, 'pbo_int', 110, { name: `PBO étage ${f}`, capacity: 6 });
+      pto[f] = t.inFloor(b, f, 'pto', 380, { name: `PTO Appt ${f}01` });
+      ont[f] = t.inFloor(b, f, 'ont', 560, { name: `ONT Appt ${f}01` });
+    }
+    t.link('patch', olt, 0, odf, 0, { length: 2 });
+    t.link('smf', odf, 0, pmi, 0, { length: 2500, fibers: 24 });
+    const r1 = t.link('riser', pmi, 0, pbo[1], 0, { jointA: 'fusion', jointB: 'none', fibers: 24 });
+    const r2 = t.link('riser', pbo[1], 0, pbo[2], 0, { jointA: 'none', jointB: 'none', fibers: 24 });
+    const links = { r1, r2 };
+    for (const f of [1, 2]) {
+      links['h' + f] = t.link('lszh', pbo[f], 1, pto[f], 0, { length: 15 });
+      t.link('patch', pto[f], 0, ont[f], 0, { length: 2 });
+    }
+    if (full) {
+      links.r3 = t.link('riser', pbo[2], 0, pbo[3], 0, { jointA: 'none', jointB: 'none', fibers: 24 });
+      links.h3 = t.link('lszh', pbo[3], 1, pto[3], 0, { length: 15 });
+      t.link('patch', pto[3], 0, ont[3], 0, { length: 2 });
+    }
+    return { t, links, pto, ont, pbo };
+  }
+
+  function tp3(full) { return mduTopo(full, { name: 'Résidence Les Érables (R+3)', splitter: '1:32' }).t.json(); }
+
+  function tp4(full) {
+    const t = new Topo();
+    const sw = t.dev('switch', 40, 330, { name: 'Switch cœur opérateur', role: 'coeur', txPower: -3, wavelength: 1310, sfpPorts: 2, ethPorts: 0 });
+    const odf = t.dev('odf', 230, 290, { name: 'ODF NRO' });
+    const b = t.dev('bld_mdu', 520, 50, { name: 'Siège Société TechnoSud (R+2)', usage: 'Bureaux', floors: 2, basement: false, floorHeight: 3 }, { w: 800, floorPx: 170 });
+    const odfR = t.inFloor(b, 0, 'odf_int', 90, { name: 'ODF local technique' });
+    const odf1 = t.inFloor(b, 1, 'odf_int', 90, { name: 'ODF d\'étage 1', ports: 12 });
+    const odf2 = t.inFloor(b, 2, 'odf_int', 90, { name: 'ODF d\'étage 2', ports: 12 });
+    const acc = { role: 'acces', txPower: -3, sensitivity: -20, overload: -3, wavelength: 1310, sfpPorts: 1, ethPorts: 4 };
+    const sw1 = t.inFloor(b, 1, 'switch', 320, Object.assign({ name: 'Switch étage 1' }, acc));
+    const sw2 = t.inFloor(b, 2, 'switch', 320, Object.assign({ name: 'Switch étage 2' }, acc));
+    const pc1 = t.inFloor(b, 1, 'pc', 520, { name: 'PC compta' });
+    const tel1 = t.inFloor(b, 1, 'phone', 660, { name: 'Tél. IP compta' });
+    const pc2 = t.inFloor(b, 2, 'pc', 520, { name: 'PC direction' });
+    const tel2 = t.inFloor(b, 2, 'phone', 660, { name: 'Tél. IP direction' });
+    t.link('patch', sw, 0, odf, 0, { length: 2 });
+    t.link('patch', sw, 1, odf, 1, { length: 2 });
+    t.link('smf', odf, 0, odfR, 0, { length: 6000, fibers: 12 });
+    t.link('smf', odf, 1, odfR, 1, { length: 6000, fibers: 12 });
+    t.link('riser', odfR, 0, odf2, 0, { jointA: 'fusion', jointB: 'fusion', fibers: 12 });
+    t.link('riser', odfR, 1, odf1, 0, { jointA: 'fusion', jointB: 'fusion', fibers: 12 });
+    t.link('patch', odf1, 0, sw1, 0, { length: 2 });
+    t.link('cat6', sw1, 1, pc1, 0, { length: 15 });
+    t.link('cat6', sw1, 2, tel1, 0, { length: 20 });
+    if (full) {
+      t.link('patch', odf2, 0, sw2, 0, { length: 2 });
+      t.link('cat6', sw2, 1, pc2, 0, { length: 18 });
+      t.link('cat6', sw2, 2, tel2, 0, { length: 22 });
+    }
+    return t.json();
+  }
+
+  function tp5() {
+    const m = mduTopo(true, { name: 'Résidence Le Belvédère (R+3)', splitter: '1:64' });
+    const L = id => m.t.links.find(l => l.id === id);
+    L(m.links.r3).fault = { type: 'cut', pos: 1.5, hidden: true };
+    L(m.links.h1).fault = { type: 'bend', pos: 8, hidden: true };
+    m.t.get(m.pto[2]).fault = { type: 'dirty', hidden: true };
+    return m.t.json();
+  }
+
+  function exFTTB() {
+    const t = new Topo();
+    const olt = t.dev('olt', 30, 760, { name: 'OLT NRO' });
+    const odf = t.dev('odf', 210, 730, { name: 'ODF NRO' });
+    const sro = t.dev('sro', 400, 740, { name: 'SRO', splitter: '1:16', outPorts: 16 });
+    const b = t.dev('bld_mdu', 640, 40, { name: 'Immeuble FTTB (R+3)', usage: 'Bureaux', floors: 3, basement: true }, { w: 640, floorPx: 170 });
+    const odfI = t.inFloor(b, -1, 'odf_int', 90, { name: 'ODF pied d\'immeuble' });
+    const onu = t.inFloor(b, -1, 'ont', 300, { name: 'ONU d\'immeuble' });
+    const pcs = [1, 2, 3].map(f => t.inFloor(b, f, 'pc', 460, { name: `PC étage ${f}` }));
+    t.link('patch', olt, 0, odf, 0, { length: 2 });
+    t.link('smf', odf, 0, sro, 0, { length: 1800 });
+    t.link('smf', sro, 0, odfI, 0, { length: 350 });
+    t.link('patch', odfI, 0, onu, 0, { length: 2 });
+    [25, 32, 40].forEach((len, i) => t.link('cat6', onu, i, pcs[i], 0, { length: len }));
+    return t.json();
+  }
+
+  function exCampus() {
+    const t = new Topo();
+    const b = t.dev('bld_simple', 40, 120, { name: 'Lycée — Bâtiment A', kind: 'Bureau RDC', gaineLength: 0 }, { w: 420, h: 300 });
+    const b2 = t.dev('bld_simple', 820, 120, { name: 'Lycée — Bâtiment B', kind: 'Bureau RDC', gaineLength: 0 }, { w: 420, h: 300 });
+    void b; void b2;
+    const sw = t.dev('switch', 80, 220, { name: 'Switch cœur A', role: 'coeur', wavelength: 850, fiberMode: 'Multimode (MM)', txPower: -5, sfpPorts: 1, ethPorts: 2 });
+    const odfA = t.dev('odf_int', 270, 200, { name: 'ODF A', connector: 'LC/UPC' });
+    const odfB = t.dev('odf_int', 860, 200, { name: 'ODF B', connector: 'LC/UPC' });
+    const swB = t.dev('switch', 1060, 220, { name: 'Switch B', role: 'acces', wavelength: 850, fiberMode: 'Multimode (MM)', txPower: -5, sensitivity: -17, overload: -1, sfpPorts: 1, ethPorts: 2 });
+    const pc = t.dev('pc', 1060, 330, { name: 'Salle info B' });
+    t.link('patch', sw, 0, odfA, 0, { length: 2, connector: 'LC/UPC' });
+    t.link('om3', odfA, 0, odfB, 0, { length: 250, jointA: 'fusion', jointB: 'fusion' });
+    t.link('patch', odfB, 0, swB, 0, { length: 2, connector: 'LC/UPC' });
+    t.link('cat6', swB, 1, pc, 0, { length: 30 });
+    return t.json();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Couche service : mise en service FTTH (GPON) et Active Ethernet     */
+  /* ------------------------------------------------------------------ */
+  const SN_TP10 = 'ALCL1A2B3C4D';
+
+  /** TP 10 — Mise en service FTTH : collecte PPPoE, OLT, ONT, Box, 3 services. */
+  function tp10(full) {
+    const t = new Topo();
+    const col = t.dev('collecte', 30, 250, { name: 'Routeur de collecte', accessMode: 'pppoe',
+      accounts: [{ login: 'dupont@optisim', password: 'Fibre-2026' }, { login: 'martin@optisim', password: 'Opti-75' }] });
+    const olt = t.dev('olt', 230, 250, { name: 'OLT NRO', onts: full ? [{ sn: SN_TP10, profile: 'trio' }] : [] });
+    const odf = t.dev('odf', 430, 200, { name: 'ODF NRO' });
+    const sro = t.dev('sro', 640, 230, { name: 'SRO Quartier Est', splitter: '1:32', outPorts: 32 });
+    const pbo = t.dev('pbo_ext', 850, 250, { name: 'PBO poteau P7', capacity: 8 });
+    t.dev('bld_simple', 1050, 130, { name: 'Maison Dupont', kind: 'Villa / Pavillon', gaineLength: 15 }, { w: 740, h: 380 });
+    const pto = t.dev('pto', 1080, 260, { name: 'PTO séjour' });
+    const ont = t.dev('ont', 1250, 250, { name: 'ONT Dupont', sn: SN_TP10 });
+    const box = t.dev('router', 1430, 250, Object.assign({ name: 'Box Dupont' }, full
+      ? { wanMode: 'pppoe', pppLogin: 'dupont@optisim', pppPassword: 'Fibre-2026' }
+      : { wanMode: 'dhcp', pppLogin: '', pppPassword: '', vlanTv: 210 }));
+    const pc = t.dev('pc', 1630, 180, { name: 'PC salon' });
+    const tv = t.dev('tv', 1630, 300, { name: 'Décodeur TV' });
+    const ph = t.dev('phone', 1630, 410, { name: 'Téléphone' });
+    t.link('uplink', col, 0, olt, 0, { length: 15 });
+    t.link('patch', olt, 0, odf, 0, { length: 2 });
+    t.link('smf', odf, 0, sro, 0, { length: 3000, fibers: 48 });
+    t.link('smf', sro, 0, pbo, 0, { length: 800, fibers: 12 });
+    t.link('drop', pbo, 0, pto, 0, { length: 45 });
+    t.link('patch', pto, 0, ont, 0, { length: 2 });
+    t.link('cat6', ont, 0, box, 0, { length: 2 });
+    t.link('cat6', box, 0, pc, 0, { length: 6 });
+    t.link('cat6', box, 1, tv, 0, { length: 4 });
+    t.link('cat6', box, 2, ph, 0, { length: 8 });
+    return t.json();
+  }
+
+  /** TP 11 — Active Ethernet (AON) : raccordement d'une entreprise en point à point. */
+  function tp11(full) {
+    const t = new Topo();
+    const col = t.dev('collecte', 30, 250, { name: 'Routeur de collecte', accessMode: 'dhcp' });
+    const sw = t.dev('switch_aon', 230, 210, { name: 'Switch AON NRO',
+      ports: full ? [{ enabled: true, profile: 'internet-1g' }, { enabled: true, profile: 'duo' }, { enabled: true, profile: 'trio' }] : [{ enabled: true, profile: 'internet-1g' }, { enabled: true, profile: 'duo' }] });
+    const odf = t.dev('odf', 440, 210, { name: 'ODF NRO' });
+    t.dev('bld_simple', 720, 120, { name: 'Entreprise Lumitech', kind: 'Bureau RDC', gaineLength: 10 }, { w: 760, h: 400 });
+    const pto = t.dev('pto', 750, 260, { name: 'PTO local technique' });
+    const ont = t.dev('ont', 920, 250, { name: 'CPE fibre (ONT)', sensitivity: -22, overload: -3 });
+    const box = t.dev('router', 1100, 250, { name: 'Routeur Lumitech', lanIp: '192.168.10.1', lanPrefix: 24, dhcp: false, dhcpStart: '192.168.10.100', dhcpEnd: '192.168.10.150', ssid: 'Lumitech' });
+    const pc = t.dev('pc', 1300, 190, { name: 'PC accueil', ipMode: 'static', ip: '192.168.10.20', prefix: 24, gateway: full ? '192.168.10.1' : '192.168.10.254' });
+    const ph = t.dev('phone', 1300, 340, { name: 'Téléphone accueil', ipMode: 'static', ip: '192.168.10.21', prefix: 24, gateway: '192.168.10.1' });
+    if (full) t.link('uplink', col, 0, sw, 0, { length: 10 });
+    t.link('patch', sw, 2, odf, 2, { length: 2 });
+    t.link('smf', odf, 2, pto, 0, { length: 1500, fibers: 12 });
+    t.link('patch', pto, 0, ont, 0, { length: 2 });
+    t.link('cat6', ont, 0, box, 0, { length: 3 });
+    t.link('cat6', box, 0, pc, 0, { length: 15 });
+    t.link('cat6', box, 1, ph, 0, { length: 12 });
+    return t.json();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  BIBLIOTHÈQUE DE TP                                                  */
+  /* ------------------------------------------------------------------ */
+  const LABS = [
+    {
+      id: 'tp1', num: 1, title: 'Liaison point-à-point (P2P) avec brassage ODF', archi: 'P2P / FTTO', duration: '1 h', level: 'Découverte',
+      objectives: ['Identifier les éléments d\'une liaison optique point-à-point', 'Réaliser un brassage sur un ODF par jarretière', 'Calculer l\'atténuation totale et la puissance reçue', 'Vérifier la mesure au photomètre'],
+      context: 'La mairie de la commune doit être raccordée en fibre dédiée (P2P) au NRO situé à 4 km. Le switch cœur du NRO est déjà relié à l\'ODF de tête et le câble de 4 km est tiré et épissuré jusqu\'à l\'ODF d\'entrée du bâtiment administratif. Il reste à brasser le switch client.',
+      steps: [
+        'Cliquez sur « Charger la topologie du TP ». Observez le NRO (à gauche) et le bâtiment administratif (à droite).',
+        'Sélectionnez le câble de 4 km : relevez dans l\'inspecteur son type, sa longueur et ses modes de raccordement (épissures fusion).',
+        'Dans la boîte à outils, choisissez « Jarretière optique », cliquez sur l\'ODF d\'entrée puis sur le Switch client. Validez une longueur de 3 m, connecteurs SC/APC.',
+        'Reliez le switch client au PC et au téléphone IP avec des câbles « Ethernet RJ45 Cat6 ». Les badges doivent passer au vert.',
+        'Passez en mode « Mesure / Test », choisissez le Photomètre et cliquez sur le Switch client. Relevez la puissance reçue.',
+        'Ouvrez l\'onglet « Bilan » de l\'inspecteur et comparez avec votre calcul.',
+        'Expérience : sélectionnez la jarretière côté client et changez son port amont (Aval 2 au lieu de Aval 1). Que se passe-t-il ? Remettez le port 1.'
+      ],
+      questions: [
+        { q: 'Quel est le rôle d\'un ODF ? Que signifient les côtés « amont » et « aval » ?', a: '' },
+        { q: 'Calculez l\'atténuation de la fibre de 4 km à 1310 nm.', a: '' },
+        { q: 'Calculez l\'atténuation totale de la liaison (2 traversées d\'ODF à 0,5 dB, 2 épissures fusion à 0,05 dB, jarretières négligeables).', a: '' },
+        { q: 'Le SFP émet à −3 dBm. Quelle puissance reçoit le switch client ?', a: '' },
+        { q: 'La sensibilité du récepteur est de −20 dBm. Quelle est la marge ? La liaison est-elle correcte ?', a: '' },
+        { q: 'Que se passe-t-il si la jarretière est branchée sur le port Aval 2 de l\'ODF ? Comment appelle-t-on ce défaut ?', a: '' }
+      ],
+      topology: tp1
+    },
+    {
+      id: 'tp2', num: 2, title: 'FTTH pavillonnaire : raccordement d\'une villa via PBO extérieur', archi: 'FTTH', duration: '1 h 30', level: 'Intermédiaire',
+      objectives: ['Comprendre la chaîne NRO → SRO → PBO → PTO → ONT', 'Poser un câble drop et raccorder la PTO', 'Intégrer la perte d\'un coupleur dans le bilan', 'Interpréter les voyants de l\'ONT'],
+      context: 'Un client de la Villa « Les Tilleuls » souscrit un abonnement fibre. Le réseau de distribution est en place jusqu\'au PBO aérien (poteau P12). Le technicien doit tirer le câble de branchement (drop) jusqu\'à la PTO du salon puis installer l\'ONT.',
+      steps: [
+        'Chargez la topologie. Repérez l\'OLT, l\'ODF du NRO, le SRO (coupleur 1:32) et le PBO aérien.',
+        'Sélectionnez la villa : notez la longueur de gaine intérieure (adduction → PTO).',
+        'Outil « Câble Drop extérieur » : cliquez sur le PBO puis sur la PTO. Saisissez 45 m, épissure fusion aux deux extrémités.',
+        'Outil « Jarretière optique » : reliez la PTO à l\'ONT (2 m, SC/APC).',
+        'Observez les voyants de l\'ONT (PON vert, LOS éteint) et la connexion du routeur, du PC et du décodeur.',
+        'Mesurez au photomètre la puissance en sortie du SRO, au PBO, à la PTO et sur l\'ONT.',
+        'Expérience : passez le coupleur du SRO en 1:64 et observez la puissance reçue par l\'ONT. Revenez à 1:32.'
+      ],
+      questions: [
+        { q: 'Que signifient NRO, SRO, PBO et PTO ?', a: '' },
+        { q: 'Longueur totale du branchement fibre entre le PBO et la PTO ?', a: '' },
+        { q: 'Calculez les pertes linéiques à 1490 nm (0,25 dB/km) : transport 3 km, distribution 0,8 km, branchement 60 m.', a: '' },
+        { q: 'Faites le bilan complet : ODF 0,5 dB ; SRO (brassage 0,5 dB + coupleur 1:32 17,2 dB) ; 6 épissures fusion ; PTO 0,5 dB.', a: '' },
+        { q: 'L\'OLT émet à +4 dBm. Quelle puissance reçoit l\'ONT ? Est-elle dans la plage [−27 ; −8] dBm ?', a: '' },
+        { q: 'Avec un coupleur 1:64 (21 dB), que devient la puissance reçue ?', a: '' }
+      ],
+      topology: tp2
+    },
+    {
+      id: 'tp3', num: 3, title: 'FTTH en immeuble : PMI, colonne montante et PBO d\'étage', archi: 'FTTH (immeuble)', duration: '2 h', level: 'Intermédiaire',
+      objectives: ['Identifier PMI, colonne montante et PBO intérieurs', 'Calculer la longueur d\'une colonne montante', 'Réaliser le piquage d\'un PBO d\'étage et le branchement palier', 'Établir un bilan tronçon par tronçon'],
+      context: 'La Résidence « Les Érables » (R+3 avec sous-sol) est fibrée. Le PMI est installé au sous-sol avec un coupleur 1:32. La colonne montante dessert les étages 1 et 2. Vous devez prolonger la colonne jusqu\'au 3e étage et raccorder l\'appartement 301.',
+      steps: [
+        'Chargez la topologie. Repérez la gaine technique (bande en pointillés) et les PBO d\'étage.',
+        'Sélectionnez la colonne PMI → PBO étage 1 : vérifiez que la longueur est calculée automatiquement (écart d\'étages × 3 m).',
+        'Outil « Câble de colonne montante » : reliez le PBO étage 2 au PBO étage 3 (sortie libre du PBO). Laissez « Longueur auto » coché et choisissez « Aucun » aux deux extrémités (fibre en passage, non coupée).',
+        'Outil « Câble intérieur LSZH » : reliez le PBO étage 3 à la PTO Appt 301 (15 m, épissure fusion aux deux extrémités).',
+        'Outil « Jarretière » : reliez la PTO 301 à l\'ONT 301.',
+        'Sélectionnez l\'ONT 301 et consultez l\'onglet « Bilan » : identifiez chaque catégorie (NRO, extérieur, PMI, colonne, PBO, branchement).',
+        'Tirez un OTDR (mode Mesure) sur l\'ONT 301 à 1310 nm et identifiez les événements.'
+      ],
+      questions: [
+        { q: 'Quelle est la différence entre un PMI et un PBO intérieur ?', a: '' },
+        { q: 'Le PMI est au sous-sol, le PBO au 3e étage, hauteur d\'étage 3 m. Longueur de colonne ?', a: '' },
+        { q: 'Pourquoi utilise-t-on de la fibre G.657A2 dans la colonne et en palier ?', a: '' },
+        { q: 'Calculez le bilan jusqu\'à l\'ONT 301 à 1490 nm.', a: '' },
+        { q: 'Puissance reçue par l\'ONT 301 ? Conclusion ?', a: '' },
+        { q: 'Sur l\'OTDR, quels événements sont réflectifs ? Lesquels sont non réflectifs ?', a: '' }
+      ],
+      topology: tp3
+    },
+    {
+      id: 'tp4', num: 4, title: 'FTTO : fibre dédiée entreprise avec ODF d\'étage et switchs optiques', archi: 'FTTO', duration: '1 h 30', level: 'Intermédiaire',
+      objectives: ['Différencier FTTH, FTTB et FTTO', 'Câbler une distribution FTTO par ODF d\'étage', 'Vérifier le budget optique d\'une liaison SFP', 'Contrôler la connectivité des postes de travail'],
+      context: 'La société TechnoSud (immeuble de bureaux R+2) dispose de 2 fibres dédiées depuis le NRO (6 km). Chaque étage possède un ODF d\'étage alimenté par la colonne montante depuis le local technique du RDC. L\'étage 1 est opérationnel ; l\'étage 2 doit être mis en service.',
+      steps: [
+        'Chargez la topologie. Vérifiez qu\'à l\'étage 1 le PC et le téléphone sont connectés (badges verts).',
+        'Étage 2 : avec l\'outil « Jarretière », reliez l\'ODF d\'étage 2 au Switch étage 2.',
+        'Reliez le switch d\'étage 2 au PC direction et au téléphone IP direction en Cat6.',
+        'Mesurez au photomètre la puissance reçue par chaque switch d\'étage.',
+        'Comparez le bilan des deux étages : quelle différence ? pourquoi est-elle faible ?',
+        'Expérience : remplacez une jarretière SC/APC par une jarretière SC/UPC (inspecteur du câble). Que signale le simulateur ?'
+      ],
+      questions: [
+        { q: 'Qu\'est-ce qui distingue le FTTO du FTTH ?', a: '' },
+        { q: 'Calculez l\'atténuation jusqu\'au switch d\'étage 2 à 1310 nm.', a: '' },
+        { q: 'Puissance reçue et marge (Tx −3 dBm, sensibilité −20 dBm) ?', a: '' },
+        { q: 'Pourquoi ne faut-il jamais connecter un connecteur APC (vert) avec un UPC (bleu) ?', a: '' },
+        { q: 'Dans quel cas utiliserait-on de la fibre multimode OM3/OM4 ?', a: '' }
+      ],
+      topology: tp4
+    },
+    {
+      id: 'tp5', num: 5, title: 'Diagnostic et dépannage d\'un immeuble FTTH', archi: 'FTTH (dépannage)', duration: '2 h', level: 'Avancé',
+      objectives: ['Mettre en œuvre une méthode de dépannage', 'Utiliser photomètre, OTDR et VFL pour localiser un défaut', 'Distinguer coupure, courbure et connecteur sale', 'Rédiger un compte rendu d\'intervention'],
+      context: 'Trois abonnés de la Résidence « Le Belvédère » (PMI avec coupleur 1:64) se plaignent : l\'appartement 301 n\'a plus de service, le 101 subit des coupures, le 201 trouve sa connexion moins stable. Les pannes sont cachées : à vous de les localiser !',
+      steps: [
+        'Chargez la topologie. Calculez d\'abord la puissance théorique attendue sur chaque ONT (bilan sans défaut).',
+        'Mode « Mesure / Test » → Photomètre : relevez la puissance sur les 3 ONT, puis remontez PTO → PBO → colonne pour encadrer chaque défaut.',
+        'Appt 301 (LOS) : utilisez le VFL depuis le PBO étage 2 (sens aval) : où la lumière rouge s\'échappe-t-elle ?',
+        'Tirez un OTDR à 1550 nm sur l\'ONT 301 : relevez la distance de la fin anormale.',
+        'Appt 101 : tirez un OTDR à 1310 nm puis à 1550 nm. Comparez la perte de l\'événement sur le câble palier.',
+        'Appt 201 : comparez la puissance avant et après la PTO.',
+        ELEVE ? 'Mode « Dépannage » : sélectionnez chaque élément défectueux, cliquez sur le bouton d\'intervention (« Reprendre le câble » ou « Nettoyer / remplacer »), puis contrôlez au photomètre.' : 'Mode « Simulation de pannes » : cliquez sur « Révéler » pour vérifier, puis « Réparer » chaque défaut et contrôlez au photomètre.'
+      ],
+      questions: [
+        { q: 'Quelle puissance théorique attend-on sur chaque ONT (coupleur 1:64) ?', a: '' },
+        { q: 'Appt 301 : quel défaut ? Où ?', a: '' },
+        { q: 'Appt 101 : quelle puissance mesurée ? Quel défaut ?', a: '' },
+        { q: 'Appt 201 : quel défaut ? Quelle action corrective ?', a: '' },
+        { q: 'Pourquoi la courbure est-elle mieux révélée à 1550 nm ?', a: '' },
+        { q: 'Rédigez la méthode générale de dépannage.', a: '' }
+      ],
+      topology: tp5
+    },
+    {
+      id: 'tp10', num: 10, title: 'Mise en service FTTH : OLT, routeur de collecte et Box', archi: 'FTTH (services)', duration: '1 h 30', level: 'Intermédiaire',
+      objectives: ['Comprendre la chaîne logique routeur de collecte → OLT → ONT → Box → appareils', 'Autoriser une ONT sur l\'OLT par son numéro de série et lui attribuer un profil', 'Configurer la session WAN PPPoE et les VLAN de la Box', 'Lire un diagnostic de service pas à pas'],
+      context: 'La fibre de la Maison Dupont est raccordée et la lumière arrive à l\'ONT (−15,97 dBm). Pourtant, ni Internet, ni la TV, ni le téléphone ne fonctionnent. Le technicien de mise en service doit déclarer l\'abonné sur l\'OLT et terminer la configuration de la Box. Contrat de l\'abonné : offre Triple play, identifiant PPPoE dupont@optisim, mot de passe Fibre-2026.',
+      steps: [
+        'Chargez la topologie. Sélectionnez le PC salon et ouvrez l\'onglet « Configuration » : quelle étape du diagnostic est en défaut ?',
+        'Sélectionnez l\'ONT Dupont : relevez son numéro de série dans l\'onglet « Configuration ».',
+        'Sélectionnez l\'OLT NRO → « Configuration » → « Autorisation des ONT » : cliquez sur « Autoriser » en face de l\'ONT détectée (ou déclarez son numéro de série), profil Triple play.',
+        'Revenez sur le PC : quelle est maintenant l\'étape en défaut ? Sélectionnez le routeur de collecte et relevez son mode d\'accès.',
+        'Sélectionnez la Box Dupont → « Configuration » → WAN : passez en PPPoE et saisissez l\'identifiant et le mot de passe de l\'abonné.',
+        'Le décodeur TV est encore en défaut : comparez le VLAN TV de la Box à celui de l\'OLT et de la collecte, puis corrigez.',
+        'Vérifiez que les trois services sont « En service » (onglet « Configuration » sans sélection : tableau des services) et relevez les adresses obtenues.'
+      ],
+      questions: [
+        { q: 'Pourquoi l\'ONT reçoit-elle de la lumière mais les services ne fonctionnent-ils pas ?', a: '' },
+        { q: 'Quel est le rôle du profil de service attribué à l\'ONT ?', a: '' },
+        { q: 'Quelle adresse WAN la Box obtient-elle ? Qui la fournit ?', a: '' },
+        { q: 'Quelles adresses IP reçoivent le PC, le décodeur et le téléphone ? Quelle est leur passerelle ?', a: '' },
+        { q: 'Pourquoi la TV ne fonctionnait-elle pas alors qu\'Internet était rétabli ?', a: '' },
+        { q: 'Quel débit maximal le PC peut-il atteindre ? Que se passerait-il avec 4 abonnés actifs sur le même port PON ?', a: '' }
+      ],
+      topology: tp10
+    },
+    {
+      id: 'tp11', num: 11, title: 'Active Ethernet (AON) : raccordement d\'une entreprise', archi: 'AON / P2P', duration: '1 h', level: 'Intermédiaire',
+      objectives: ['Distinguer l\'architecture Active Ethernet (point à point) du GPON', 'Raccorder un switch AON au routeur de collecte', 'Activer un port abonné et choisir son profil', 'Configurer un adressage IP statique'],
+      context: 'L\'entreprise Lumitech est raccordée en fibre dédiée sur le port SFP 3 du switch AON du NRO. Le lien de collecte du switch n\'a pas encore été posé, et le port de l\'entreprise n\'est pas activé. Lumitech utilise un adressage fixe (réseau 192.168.10.0/24, routeur en 192.168.10.1) et a souscrit l\'offre Triple play pour son téléphone.',
+      steps: [
+        'Chargez la topologie. Repérez la fibre dédiée : patch du port SFP 3 du switch → ODF → câble de 1,5 km → PTO. Mesurez la puissance reçue par la CPE fibre.',
+        'Outil « Lien de collecte 10 GbE » : reliez un port 10G du routeur de collecte à l\'uplink du switch AON.',
+        'Sélectionnez le PC accueil → « Configuration » : quelle étape est en défaut ?',
+        'Switch AON → « Configuration » → « Ports abonnés » : activez le port SFP 3 avec le profil Triple play.',
+        'Le PC est encore en défaut : lisez le diagnostic, puis corrigez sa configuration IP.',
+        'Vérifiez que le PC (Internet) et le téléphone (Téléphonie) sont en service.'
+      ],
+      questions: [
+        { q: 'Quelle différence principale entre Active Ethernet et GPON ?', a: '' },
+        { q: 'Comment l\'abonné est-il identifié en AON ? et en GPON ?', a: '' },
+        { q: 'Quelle puissance reçoit la CPE ? Pourquoi a-t-elle un seuil de saturation de −3 dBm ?', a: '' },
+        { q: 'Quelle erreur de configuration avait le PC ?', a: '' },
+        { q: 'Quel débit maximal le PC peut-il atteindre ?', a: '' }
+      ],
+      topology: tp11
+    }
+  ];
+
+  const EXAMPLES = [
+    { id: 'ex-fttb', title: 'Exemple FTTB : ONU en pied d\'immeuble + Ethernet', desc: 'La fibre s\'arrête au sous-sol (ONU d\'immeuble) ; la distribution des étages se fait en cuivre Cat6 (≤ 100 m). Modifiez une longueur Cat6 à 120 m pour observer la limite.', topology: exFTTB },
+    { id: 'ex-campus', title: 'Exemple Campus : liaison multimode OM3 entre deux bâtiments', desc: 'Switchs SFP 850 nm multimode, ODF LC/UPC et dorsale OM3 de 250 m.', topology: exCampus },
+    { id: 'ex-ftth', title: 'Démo complète : villa FTTH en service', desc: 'Topologie du TP 2 entièrement câblée.', topology: () => tp2(true) },
+    { id: 'ex-services', title: 'Exemple Services : FTTH triple play configuré', desc: 'Routeur de collecte (PPPoE), OLT avec ONT autorisée, Box et 3 appareils : Internet, TV et Téléphonie en service. Explorez l\'onglet « Configuration », puis introduisez une erreur (VLAN, mot de passe, DHCP…) pour voir le diagnostic.', topology: () => tp10(true) },
+    { id: 'ex-aon', title: 'Exemple Services : Active Ethernet (AON) entreprise', desc: 'Switch AON relié au routeur de collecte, fibre dédiée sur le port SFP 3, routeur d\'entreprise et adressage IP statique.', topology: () => tp11(true) }
+  ];
+
+  /* ------------------------------------------------------------------ */
+  /*  DOCUMENTATION / COURS                                               */
+  /* ------------------------------------------------------------------ */
+  const DOCS = [
+    { id: 'start', group: 'Guide de l\'utilisateur', title: 'Prise en main de l\'interface', html: `
+<p><b>OptiSim FTTx Lab</b> est un laboratoire virtuel de réseaux fibre optique, conçu par <b>Hassami COMPAORE</b>. L'écran est organisé en 4 zones :</p>
+<ol>
+<li><b>Barre supérieure</b> : Nouveau / Ouvrir / Sauvegarder (fichier JSON), choix du <b>mode</b>, bibliothèque <b>Exemples &amp; TP</b>, <b>Documentation</b>, annulation et thème clair/sombre.</li>
+<li><b>Boîte à outils (gauche)</b> : équipements classés par catégorie, câbles et instruments de mesure.</li>
+<li><b>Canevas (centre)</b> : espace de travail quadrillé. Molette = zoom, clic-glisser sur le fond = déplacement.</li>
+<li><b>Inspecteur (droite)</b> : propriétés de l'élément sélectionné, <b>bilan optique</b> détaillé et écran de l'<b>OTDR</b>.</li>
+</ol>
+<h4>Les trois modes</h4>
+<table class="doc-table"><tr><th>Mode</th><th>Usage</th></tr>
+<tr><td>Conception</td><td>Poser, déplacer, câbler et paramétrer les équipements.</td></tr>
+<tr><td>Mesure / Test</td><td>Utiliser le photomètre, l'OTDR et le stylo optique (VFL).</td></tr>
+<tr><td>Dépannage <small>(version élève)</small></td><td>Intervenir sur un câble ou un équipement défectueux, après l'avoir localisé par la mesure.</td></tr></table>
+<p>Voir aussi : <a href="#" data-doc-link="exam">Versions élève / enseignant et examens</a>.</p>
+<h4>Poser et câbler</h4>
+<ul>
+<li><b>Glissez</b> un équipement de la boîte à outils vers le canevas. Déposé dans un bâtiment, il y est rattaché (et à l'étage correspondant).</li>
+<li>Pour câbler : cliquez sur un <b>type de câble</b>, puis sur l'équipement de départ (amont) et sur l'équipement d'arrivée (aval). Une fenêtre demande la longueur et le mode de raccordement de chaque extrémité.</li>
+<li>Les ports sont attribués automatiquement (premier port libre compatible). Vous pouvez les changer dans l'inspecteur du câble.</li>
+<li>Les ports d'<b>entrée</b> sont à gauche des équipements, les ports de <b>sortie</b> à droite. Le simulateur représente le <b>sens descendant</b> (émetteur → récepteur).</li>
+</ul>
+<h4>Raccourcis</h4>
+<table class="doc-table"><tr><td><kbd>Suppr</kbd></td><td>Supprimer la sélection</td></tr><tr><td><kbd>Échap</kbd></td><td>Annuler l'outil en cours</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Annuler</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Sauvegarder (JSON)</td></tr><tr><td><kbd>F</kbd></td><td>Recadrer la vue sur le réseau</td></tr></table>
+<h4>Badges de statut</h4>
+<p><span class="dot ok"></span> OK &nbsp; <span class="dot weak"></span> Signal faible (marge &lt; 3 dB) &nbsp; <span class="dot los"></span> LOS / saturation &nbsp; <span class="dot nc"></span> non raccordé / pas de source.</p>` },
+
+    { id: 'buildings', group: 'Guide de l\'utilisateur', title: 'Créer des bâtiments', html: `
+<h4>Bâtiment simple</h4>
+<p>Villa, pavillon, boutique ou bureau de plain-pied. Paramètre clé : <b>longueur de gaine intérieure</b> (du point d'adduction PA jusqu'à la PTO). Tout câble optique entrant depuis l'extérieur reçoit automatiquement cette longueur supplémentaire dans le bilan.</p>
+<h4>Immeuble multi-niveaux (R+N)</h4>
+<ul><li>Réglez le nombre d'étages (R+1 à R+12), la présence d'un sous-sol et la <b>hauteur d'étage</b> (3 m par défaut).</li>
+<li>Le bâtiment est découpé en bandes horizontales (Sous-sol, RDC, Étage 1…). La bande verticale en pointillés représente la <b>gaine technique</b> (colonne montante).</li>
+<li>Déposez les équipements dans l'étage voulu : l'inspecteur affiche l'étage détecté.</li>
+<li>Redimensionnez un bâtiment avec la poignée en bas à droite. Déplacer un bâtiment déplace tout son contenu.</li></ul>` },
+
+    { id: 'odf', group: 'Guide de l\'utilisateur', title: 'Brassage sur ODF', html: `
+<p>L'ODF possède deux faces :</p>
+<ul><li><b>Amont</b> (à gauche) : arrivée des fibres du câble, épissurées sur des pigtails.</li>
+<li><b>Aval</b> (à droite) : connecteurs en face avant où l'on brasse des <b>jarretières</b>.</li></ul>
+<p>La correspondance est <b>port à port</b> : la fibre arrivant sur <i>Amont 3</i> ressort uniquement sur <i>Aval 3</i>. Brancher une jarretière sur un autre port produit une <b>erreur de brassage</b> (LOS chez l'abonné).</p>
+<p>Chaque traversée d'ODF ajoute sa perte d'insertion (raccord, 0,3 à 0,5 dB). Les jarretières n'ajoutent pas de perte de raccordement supplémentaire : les connecteurs sont comptés dans la traversée.</p>
+<p class="tip">Astuce : quand vous câblez depuis un ODF, le simulateur choisit le port aval qui correspond à une fibre déjà présente en amont.</p>` },
+
+    { id: 'riser', group: 'Guide de l\'utilisateur', title: 'Colonne montante & épissurage en PBO intérieur', html: `
+<ol><li>Placez le <b>PMI</b> (ou l'ODF de local technique) au sous-sol ou au RDC.</li>
+<li>Placez un <b>PBO intérieur</b> à chaque étage (ou tous les 2 étages) dans la gaine technique.</li>
+<li>Outil <b>Câble de colonne montante</b> : PMI → PBO étage 1, puis PBO étage 1 → PBO étage 2, etc. Avec « Longueur auto », la longueur = écart d'étages × hauteur d'étage.</li>
+<li>Raccordement : épissure au départ du PMI ; pour les tronçons suivants, choisissez <b>« Aucun »</b> : la fibre traverse le PBO sans être coupée (seules les fibres piquées sont épissurées).</li>
+<li>Outil <b>Câble intérieur LSZH</b> : PBO → PTO de chaque logement (épissure fusion aux deux bouts = piquage dans le PBO + épissure dans la PTO).</li></ol>
+<p class="tip">Modélisation : un câble multi-fibres est représenté par un seul trait. Chaque sortie d'un PBO correspond à une fibre de la colonne dédiée à un logement.</p>` },
+
+    { id: 'exam', group: 'Guide de l\'utilisateur', title: 'Versions élève / enseignant et examens', html: `
+<p>OptiSim FTTx Lab existe en deux versions, construites à partir des mêmes fichiers :</p>
+<table class="doc-table"><tr><th>Version</th><th>Contenu</th></tr>
+<tr><td><b>Élève</b></td><td>TP, exemples, instruments de mesure, couche service, documentation et livrets (fiches élèves). Pas de corrigés, pas d'injection ni de révélation des pannes : le mode « Dépannage » permet seulement d'<b>intervenir</b> sur un élément.</td></tr>
+<tr><td><b>Enseignant</b></td><td>Tout le contenu, les corrigés des TP et des livrets, la simulation de pannes, et le bouton <b>« Examen »</b> : création de sujets et correction des copies.</td></tr></table>
+<p>La version utilisée est indiquée sous le titre, en haut à gauche.</p>
+<h3>Passer un examen (élève)</h3>
+<ol>
+<li>Cliquez sur <b>Ouvrir</b> et choisissez le fichier <code>sujet-….json</code> donné par l'enseignant. Les consignes s'affichent ; le temps écoulé (ou restant) apparaît dans la barre supérieure.</li>
+<li>La topologie est <b>verrouillée</b> : impossible d'ajouter, de supprimer ou de déplacer un équipement ou un câble. Les mesures, les réglages et la configuration restent possibles.</li>
+<li>Localisez chaque défaut avec le photomètre, l'OTDR, le VFL et le diagnostic de l'onglet « Configuration ».</li>
+<li>Défaut optique : mode <b>« Dépannage »</b>, sélectionnez le câble ou l'équipement, puis <b>« Reprendre le câble »</b> ou <b>« Nettoyer / remplacer »</b>. Le simulateur ne dit pas si l'élément était en panne : <b>contrôlez par une mesure</b>. Chaque intervention inutile est pénalisée.</li>
+<li>Erreur de configuration : corrigez la valeur dans l'onglet « Configuration », puis relisez le diagnostic des appareils.</li>
+<li>À la fin, cliquez sur <b>« Rendre ma copie »</b> (ou Ctrl+S), indiquez nom, prénom et classe, puis remettez le fichier <code>copie-….json</code> enregistré dans Téléchargements.</li>
+</ol>
+<div class="tip">Vos mesures, interventions et réglages sont enregistrés dans un <b>journal</b> joint à la copie. Si le navigateur est fermé par erreur, l'examen reprend à la réouverture.</div>
+` },
+    { id: 'pm', group: 'Instruments de mesure', title: 'Photomètre (wattmètre optique)', html: `
+<p>Le photomètre mesure la <b>puissance optique</b> en dBm sur un port. Mode <b>Mesure / Test</b> → outil <b>Photomètre</b> → cliquez sur un équipement (OLT, ODF, PMI, PBO, PTO, ONT…).</p>
+<p>L'afficheur indique : la longueur d'onde, la puissance reçue, l'atténuation cumulée depuis la source et le statut :</p>
+<table class="doc-table"><tr><th>Statut</th><th>Condition (référence ONT GPON B+)</th></tr>
+<tr><td><span class="dot ok"></span> OK</td><td>P ≥ sensibilité + 3 dB et P ≤ saturation</td></tr>
+<tr><td><span class="dot weak"></span> Signal faible</td><td>sensibilité ≤ P &lt; sensibilité + 3 dB</td></tr>
+<tr><td><span class="dot los"></span> Saturation</td><td>P &gt; −8 dBm sur un récepteur</td></tr>
+<tr><td><span class="dot los"></span> LOS</td><td>P &lt; −27 dBm ou absence de lumière</td></tr></table>
+<p>Le tableau de ports permet de mesurer chaque entrée et chaque sortie : très utile pour encadrer un défaut (la puissance chute entre deux points de mesure).</p>` },
+
+    { id: 'otdr', group: 'Instruments de mesure', title: 'Réflectomètre (OTDR)', html: `
+<p>L'OTDR envoie des impulsions lumineuses et analyse la lumière <b>rétrodiffusée</b> : il trace la puissance en fonction de la distance. Dans le simulateur, l'OTDR remplace la source (OLT/switch) et tire vers l'équipement cliqué.</p>
+<ul><li><b>Pente</b> de la courbe = atténuation linéique de la fibre (dB/km).</li>
+<li><b>Événement réflectif</b> (pic puis marche) : connecteur (ODF, PTO, PBO connectorisé), épissure mécanique, fin de fibre ou coupure franche.</li>
+<li><b>Événement non réflectif</b> (marche sans pic) : épissure fusion, coupleur, courbure.</li>
+<li><b>Fin de fibre</b> : grand pic de Fresnel puis chute dans le bruit.</li></ul>
+<p>Réglages : longueur d'onde (1310 / 1550 nm), <b>bobine amorce</b> (fibre de lancement qui permet de voir le premier connecteur hors zone morte). Cliquez sur une ligne du tableau d'événements pour zoomer.</p>
+<p class="tip">Une perte plus forte à 1550 nm qu'à 1310 nm signale une <b>courbure</b>.</p>` },
+
+    { id: 'vfl', group: 'Instruments de mesure', title: 'Stylo optique (VFL)', html: `
+<p>Le VFL (Visual Fault Locator) injecte une <b>lumière rouge visible</b> (650 nm) dans la fibre. Mode Mesure → outil <b>VFL</b> → cliquez sur l'équipement d'injection. Choisissez le sens (aval / amont) dans la fenêtre de l'instrument.</p>
+<ul><li>La lumière parcourt câbles et jarretières à travers ODF, PMI et PBO (portée ≈ 5 km).</li>
+<li>Au niveau d'une <b>cassure</b> ou d'une <b>courbure</b>, la lumière s'échappe : un point rouge clignotant apparaît.</li>
+<li>Usage : continuité, identification d'une fibre sur un palier, détection de défaut proche.</li></ul>
+<p class="warn">Sécurité : ne jamais regarder directement une fibre ou un connecteur, même avec un VFL.</p>` },
+
+    { id: 'equip', group: 'Fiches d\'ingénierie FTTx', title: 'ODF, PMI, PBO intérieur / extérieur', html: `
+<table class="doc-table"><tr><th>Élément</th><th>Où ?</th><th>Rôle</th></tr>
+<tr><td><b>ODF</b></td><td>NRO, local technique, sous-répartiteur d'étage</td><td>Terminaison des câbles (épissures pigtails) et brassage par jarretières. Port à port.</td></tr>
+<tr><td><b>SRO / PM</b></td><td>Armoire de rue</td><td>Point de mutualisation entre opérateurs, coupleurs, brassage.</td></tr>
+<tr><td><b>PMI</b></td><td>Pied d'immeuble (sous-sol / RDC)</td><td>Point de mutualisation d'immeuble : reçoit le câble opérateur, alimente la colonne montante.</td></tr>
+<tr><td><b>PBO extérieur</b></td><td>Poteau, façade, chambre</td><td>Distribue les câbles de branchement (drop) vers les villas.</td></tr>
+<tr><td><b>PBO intérieur</b></td><td>Gaine technique de palier</td><td>Piquage des fibres de la colonne vers les logements de l'étage.</td></tr>
+<tr><td><b>PTO</b></td><td>Logement</td><td>Prise murale : point de raccordement de l'ONT.</td></tr></table>` },
+
+    { id: 'conn', group: 'Fiches d\'ingénierie FTTx', title: 'Connecteurs APC (vert) / UPC (bleu)', html: `
+<table class="doc-table"><tr><th></th><th><span class="chip apc">APC</span></th><th><span class="chip upc">UPC</span></th></tr>
+<tr><td>Polissage</td><td>Angle 8°</td><td>Plat (bombé)</td></tr>
+<tr><td>Couleur</td><td>Vert</td><td>Bleu</td></tr>
+<tr><td>Réflectance</td><td>&lt; −60 dB</td><td>&lt; −50 dB</td></tr>
+<tr><td>Usage</td><td>FTTH / PON, vidéo</td><td>Data, P2P, LAN</td></tr></table>
+<p class="warn">Ne jamais accoupler APC et UPC : forte perte (simulée à +3 dB) et risque de détérioration des férules.</p>
+<p>Formats : <b>SC</b> (carré, clipsable, 2,5 mm) et <b>LC</b> (petit format, 1,25 mm, haute densité).</p>
+<p>Avant toute connexion : <b>inspecter</b> et <b>nettoyer</b> la férule. Un connecteur sale peut ajouter plusieurs dB.</p>` },
+
+    { id: 'fibers', group: 'Fiches d\'ingénierie FTTx', title: 'Fibres et câbles', html: `
+<table class="doc-table"><tr><th>Fibre</th><th>Usage</th><th>Atténuation</th></tr>
+<tr><td>Monomode <b>G.652D</b></td><td>Transport / distribution extérieure</td><td>0,35 dB/km à 1310 nm · 0,25 à 1490 · 0,22 à 1550</td></tr>
+<tr><td>Monomode <b>G.657A2</b></td><td>Intérieur, drop, colonne : insensible aux courbures (rayon 7,5 mm)</td><td>identique à G.652D</td></tr>
+<tr><td>Multimode <b>OM3</b> (aqua)</td><td>Dorsale entreprise ≤ 300 m @ 10G</td><td>3,0 dB/km à 850 nm · 1,0 à 1300</td></tr>
+<tr><td>Multimode <b>OM4</b> (violet)</td><td>Dorsale ≤ 400 m @ 10G</td><td>2,5 dB/km à 850 nm · 0,8 à 1300</td></tr></table>
+<p><b>LSZH</b> (Low Smoke Zero Halogen) : gaine obligatoire dans les bâtiments (faible fumée, pas de gaz halogéné en cas d'incendie).</p>
+<p><b>Drop</b> : câble de branchement extérieur renforcé (aérien ou souterrain).</p>
+<p>Code couleur des câbles dans le simulateur : <span class="chip" style="background:#eab308">SMF</span> <span class="chip" style="background:#78716c">Drop</span> <span class="chip" style="background:#e2e8f0;color:#111">LSZH</span> <span class="chip" style="background:#f97316">Colonne</span> <span class="chip" style="background:#22d3ee;color:#111">OM3</span> <span class="chip" style="background:#a855f7">OM4</span> <span class="chip apc">Jarretière APC</span> <span class="chip upc">Jarretière UPC</span> <span class="chip" style="background:#60a5fa">Cat6</span></p>` },
+
+    { id: 'budget', group: 'Fiches d\'ingénierie FTTx', title: 'Calcul du bilan optique', html: `
+<p class="formula">P<sub>reçue</sub> (dBm) = P<sub>émise</sub> (dBm) − Σ pertes (dB)</p>
+<p class="formula">Σ pertes = α × L + n<sub>épissures</sub> × a<sub>ép</sub> + n<sub>connecteurs</sub> × a<sub>c</sub> + pertes coupleurs</p>
+<table class="doc-table"><tr><th>Élément</th><th>Valeur utilisée</th></tr>
+<tr><td>Épissure fusion</td><td>0,05 dB</td></tr><tr><td>Épissure mécanique</td><td>0,2 dB</td></tr>
+<tr><td>Connecteur / traversée ODF, PMI, SRO, PTO</td><td>0,5 dB (0,3 à 0,5)</td></tr>
+<tr><td>Coupleur 1:2 / 1:4 / 1:8</td><td>3,5 / 7,2 / 10,5 dB</td></tr>
+<tr><td>Coupleur 1:16 / 1:32 / 1:64</td><td>13,8 / 17,2 / 21,0 dB</td></tr></table>
+<h4>Exemple</h4>
+<p>OLT +4 dBm, 5 km à 1490 nm, ODF, SRO 1:32, 4 épissures, PTO :</p>
+<p>Pertes = 5 × 0,25 + 0,5 + (0,5 + 17,2) + 4 × 0,05 + 0,5 = 20,15 dB → P<sub>reçue</sub> = 4 − 20,15 = <b>−16,15 dBm</b>.</p>
+<p>Conditions : P<sub>reçue</sub> ≥ sensibilité (−27 dBm) avec une <b>marge ≥ 3 dB</b>, et P<sub>reçue</sub> ≤ saturation (−8 dBm).</p>
+<p>Budget optique GPON classe B+ : 28 dB ; classe C+ : 32 dB.</p>` },
+
+    { id: 'archi', group: 'Fiches d\'ingénierie FTTx', title: 'Architectures FTTH, FTTB, FTTO, P2P', html: `
+<table class="doc-table"><tr><th>Architecture</th><th>Principe</th></tr>
+<tr><td><b>FTTH</b> (Home)</td><td>Fibre jusqu'au logement. Pavillon : NRO → SRO → PBO extérieur → drop → PTO. Immeuble : NRO → PMI → colonne → PBO d'étage → PTO. Architecture PON (coupleurs).</td></tr>
+<tr><td><b>FTTB</b> (Building)</td><td>Fibre jusqu'à un ONU en pied d'immeuble, puis cuivre (Ethernet ≤ 100 m, VDSL) vers les étages.</td></tr>
+<tr><td><b>FTTO</b> (Office)</td><td>Fibre dédiée entreprise, souvent point-à-point, ODF d'étage et switchs optiques.</td></tr>
+<tr><td><b>P2P</b></td><td>Une fibre dédiée entre deux équipements actifs (pas de coupleur).</td></tr></table>
+<p>Longueurs d'onde GPON : <b>1490 nm</b> descendant, <b>1310 nm</b> montant, <b>1550 nm</b> vidéo (RF overlay).</p>` },
+
+    { id: 'faults', group: 'Fiches d\'ingénierie FTTx', title: 'Pannes typiques & méthode de dépannage', html: `
+<table class="doc-table"><tr><th>Panne</th><th>Symptôme</th><th>Outil</th></tr>
+<tr><td>Fibre coupée</td><td>LOS en aval</td><td>OTDR (fin anormale), VFL (fuite rouge)</td></tr>
+<tr><td>Écrasement / courbure</td><td>+5 dB, signal faible</td><td>OTDR 1310/1550 (perte ↑ à 1550), VFL</td></tr>
+<tr><td>Mauvaise épissure</td><td>+1,5 dB</td><td>OTDR (marche non réflective anormale)</td></tr>
+<tr><td>Connecteur sale</td><td>+3 dB</td><td>Photomètre avant/après, microscope</td></tr>
+<tr><td>Erreur de brassage / inversion</td><td>LOS chez l'abonné, lumière ailleurs</td><td>VFL, photomètre port par port</td></tr></table>
+<h4>Méthode</h4><ol><li>Constater (voyants ONT : LOS rouge, PON éteint).</li><li>Mesurer au photomètre en remontant vers le NRO.</li><li>Localiser à l'OTDR (distance) et au VFL.</li><li>Réparer.</li><li>Valider par une mesure et rédiger le compte rendu.</li></ol>` },
+
+    { id: 'ont', group: 'Fiches d\'ingénierie FTTx', title: 'Voyants de l\'ONT', html: `
+<table class="doc-table"><tr><th>Voyant</th><th>Signification</th></tr>
+<tr><td>POWER</td><td>Vert : alimenté.</td></tr>
+<tr><td>PON</td><td>Vert fixe : synchronisé avec l'OLT. Orange : signal faible. Éteint : pas de synchro.</td></tr>
+<tr><td>LOS</td><td>Rouge : perte du signal optique (fibre coupée, puissance insuffisante ou saturation).</td></tr>
+<tr><td>LAN</td><td>Vert : au moins un équipement Ethernet raccordé.</td></tr></table>` },
+
+    { id: 'svc-intro', group: 'Équipements actifs & services', title: 'Couche service : du NRO à l\'abonné', html: `
+<p>Une fibre bien raccordée ne suffit pas : l'opérateur doit encore <b>mettre en service</b> l'abonné. OptiSim simule cette « couche service » au-dessus du bilan optique.</p>
+<h4>La chaîne logique</h4>
+<p class="formula">Cœur de réseau → <b>Routeur de collecte</b> → (lien 10 GbE) → <b>OLT</b> ou <b>switch AON</b> → (fibre) → <b>ONT</b> → <b>Box</b> → PC · décodeur TV · téléphone</p>
+<table class="doc-table"><tr><th>Équipement</th><th>Rôle</th></tr>
+<tr><td>Routeur de collecte (BNG)</td><td>Relie les abonnés à Internet, ouvre leurs sessions (DHCP ou PPPoE), distribue les adresses WAN, porte les VLAN des services.</td></tr>
+<tr><td>OLT</td><td>Tête du réseau GPON : n'accepte que les ONT déclarées (numéro de série) et leur attribue un profil de service.</td></tr>
+<tr><td>Switch AON</td><td>Tête d'un réseau Active Ethernet : un port et une fibre par abonné.</td></tr>
+<tr><td>ONT</td><td>Convertit la lumière en Ethernet ; identifiée par son numéro de série.</td></tr>
+<tr><td>Box</td><td>Ouvre la session WAN chez l'opérateur, crée le réseau de la maison (LAN), distribue les adresses (DHCP).</td></tr>
+<tr><td>Appareils</td><td>PC → Internet · décodeur → TV · téléphone IP → Téléphonie.</td></tr></table>
+<h4>Comment l'activer dans OptiSim</h4>
+<ol><li>Posez un <b>routeur de collecte</b> (boîte à outils, « Actifs & Répartition »).</li>
+<li>Reliez un de ses ports 10G à l'<b>uplink</b> de l'OLT (ou du switch AON) avec le câble <b>« Lien de collecte 10 GbE »</b> (ports en losange magenta).</li>
+<li>Sélectionnez un équipement actif et ouvrez l'onglet <b>« Configuration »</b> de l'inspecteur.</li></ol>
+<p>Sans routeur de collecte raccordé, la couche service n'est pas évaluée : les TP optiques fonctionnent comme avant.</p>
+<h4>Le diagnostic pas à pas</h4>
+<p>Pour chaque appareil, OptiSim vérifie dans l'ordre et s'arrête à la <b>première étape en défaut</b> :</p>
+<ol><li>Liaison optique de l'ONT (puissance, LOS).</li><li>Autorisation de l'ONT sur l'OLT (ou port activé sur le switch AON).</li><li>Service présent dans le profil.</li><li>Routeur de collecte : raccordé au cœur de réseau, service activé.</li><li>VLAN identique de bout en bout.</li><li>Session WAN de la Box (mode, identifiants PPPoE) → adresse WAN.</li><li>Adresse IP de l'appareil (DHCP de la Box ou configuration statique).</li></ol>
+<p><b>À imprimer :</b> <a href="tutoriels-imprimables.html#tutoriel-11" target="_blank" rel="noopener">tutoriel 11 — Équipements actifs et services</a> et <a href="tutoriels-imprimables.html#fiche-memo" target="_blank" rel="noopener">fiche mémo</a> (débits, profils, VLAN, adresses). Voir aussi la rubrique <a href="#" data-doc-link="print">Supports imprimables</a>.</p>` },
+
+    { id: 'svc-olt', group: 'Équipements actifs & services', title: 'OLT : autorisation des ONT et profils', html: `
+<p>Sur un réseau GPON, plusieurs abonnés partagent la même fibre grâce au coupleur. L'OLT doit donc savoir <b>quelle ONT</b> appartient à <b>quel abonné</b>.</p>
+<h4>Le numéro de série (SN)</h4>
+<p>Chaque ONT possède un numéro de série unique, inscrit sur son étiquette (dans OptiSim : onglet « Configuration » de l'ONT). Exemple : <code>ALCL1A2B3C4D</code>.</p>
+<h4>Autoriser une ONT</h4>
+<ul><li><b>Liste blanche</b> (cas réel le plus courant) : seules les ONT dont le numéro de série est déclaré obtiennent les services. Dans « Configuration » de l'OLT, la liste <b>« ONT détectées »</b> affiche les ONT qui reçoivent de la lumière : le bouton <b>Autoriser</b> les déclare avec le profil Triple play.</li>
+<li><b>Automatique</b> : toutes les ONT reçoivent le même profil (pratique en laboratoire, déconseillé en exploitation).</li></ul>
+<p>Une ONT qui ne reçoit pas de lumière (LOS) n'est pas détectée par l'OLT.</p>
+<h4>Les profils de service</h4>
+<table class="doc-table"><tr><th>Profil</th><th>Services</th><th>Débit ↓ / ↑</th></tr>
+<tr><td>Internet 300 Mbit/s</td><td>Internet</td><td>300 / 300 Mbit/s</td></tr>
+<tr><td>Internet 1 Gbit/s</td><td>Internet</td><td>1 000 / 500 Mbit/s</td></tr>
+<tr><td>Internet 1 Gbit/s + TV</td><td>Internet, TV</td><td>1 000 / 500 Mbit/s</td></tr>
+<tr><td>Triple play</td><td>Internet, TV, Téléphonie</td><td>1 000 / 700 Mbit/s</td></tr></table>
+<h4>Débit partagé</h4>
+<p>Un port PON GPON offre <b>2 488 Mbit/s</b> descendant et <b>1 244 Mbit/s</b> montant, <b>partagés</b> entre les ONT actives du port. Débit maximal d'un abonné = le plus petit entre son profil et sa part du PON. Exemple : 4 ONT actives → 2 488 / 4 = 622 Mbit/s chacune.</p>
+<h4>VLAN de service</h4>
+<p>L'OLT transporte un VLAN par service (par défaut Internet 100, TV 200, VoIP 300). Ils doivent être identiques sur la collecte et sur la Box.</p>` },
+
+    { id: 'svc-collecte', group: 'Équipements actifs & services', title: 'Routeur de collecte : DHCP, PPPoE et VLAN', html: `
+<p>Le routeur de collecte (ou <b>BNG</b>, Broadband Network Gateway) est la porte d'entrée des abonnés vers Internet. Il est relié au <b>cœur de réseau</b> de l'opérateur.</p>
+<h4>Modes d'accès des abonnés</h4>
+<table class="doc-table"><tr><th>Mode</th><th>Fonctionnement</th><th>Côté Box</th></tr>
+<tr><td>DHCP (IPoE)</td><td>La Box demande une adresse ; la collecte la donne automatiquement. L'abonné est reconnu par sa ligne (ONT autorisée).</td><td>Mode DHCP, rien d'autre à saisir.</td></tr>
+<tr><td>PPPoE</td><td>La Box ouvre une session avec un <b>identifiant</b> et un <b>mot de passe</b> fournis par l'opérateur.</td><td>Mode PPPoE + identifiant + mot de passe identiques à un compte de la collecte.</td></tr></table>
+<p>La Box et la collecte doivent utiliser <b>le même mode</b>.</p>
+<h4>Pool d'adresses WAN</h4>
+<p>La collecte attribue à chaque Box une adresse de son pool, à partir de la 10<sup>e</sup> adresse. Exemple avec le pool <code>100.64.0.0/24</code> : première Box 100.64.0.10, deuxième 100.64.0.11…</p>
+<h4>Services et VLAN</h4>
+<p>Chaque service (Internet, TV, Téléphonie) circule dans son propre VLAN. Désactiver un service sur la collecte le coupe pour tous les abonnés. Sans raccordement au cœur de réseau, aucun service ne fonctionne.</p>
+<h4>Lien de collecte 10 GbE</h4>
+<p>La collecte est reliée à l'uplink des OLT et des switchs AON par une liaison 10 Gbit/s (fibre duplex avec modules SFP+). Cette liaison de données ne compte pas dans le bilan optique PON.</p>` },
+
+    { id: 'svc-aon', group: 'Équipements actifs & services', title: 'Active Ethernet (AON) ou GPON ?', html: `
+<table class="doc-table"><tr><th></th><th>GPON (PON passif)</th><th>Active Ethernet (AON)</th></tr>
+<tr><td>Architecture</td><td>Point à multipoint : une fibre partagée grâce à un coupleur</td><td>Point à point : une fibre par abonné, aucun coupleur</td></tr>
+<tr><td>Équipement de tête</td><td>OLT (port PON)</td><td>Switch AON (un port SFP par abonné)</td></tr>
+<tr><td>Identification de l'abonné</td><td>Numéro de série de l'ONT</td><td>Port physique du switch</td></tr>
+<tr><td>Débit</td><td>2 488 Mbit/s partagés par port PON</td><td>Débit du port dédié (1 Gbit/s)</td></tr>
+<tr><td>Usage typique</td><td>Particuliers (FTTH)</td><td>Entreprises, sites sensibles (FTTO)</td></tr></table>
+<h4>Configurer un switch AON</h4>
+<ol><li>Reliez son <b>uplink</b> au routeur de collecte (lien 10 GbE).</li>
+<li>Câblez la fibre de l'abonné depuis un port SFP (jarretière → ODF → câble → PTO).</li>
+<li>Onglet « Configuration » → <b>Ports abonnés</b> : activez le port de l'abonné et choisissez son profil.</li></ol>
+<p><b>Attention à la puissance :</b> un SFP point à point émet fort (−3 dBm) sur une liaison courte. Utilisez une CPE fibre dont le seuil de saturation est adapté (−3 dBm), sinon l'ONT sature.</p>` },
+
+    { id: 'svc-box', group: 'Équipements actifs & services', title: 'Box et appareils : WAN, LAN et adressage IP', html: `
+<h4>Le côté WAN (vers l'opérateur)</h4>
+<ul><li><b>Mode de connexion</b> : DHCP ou PPPoE, comme la collecte.</li><li><b>Identifiant / mot de passe PPPoE</b> : ceux du contrat de l'abonné.</li><li><b>VLAN Internet, TV, VoIP</b> : identiques à ceux de l'OLT et de la collecte.</li></ul>
+<h4>Le côté LAN (réseau de la maison)</h4>
+<ul><li><b>Adresse de la Box</b> (ex. 192.168.1.1) : c'est la <b>passerelle</b> des appareils.</li><li><b>Masque</b> /24 = 255.255.255.0 : les appareils doivent avoir une adresse du même réseau (192.168.1.x).</li><li><b>Serveur DHCP</b> : donne automatiquement une adresse de la plage (ex. 192.168.1.10 à 192.168.1.50).</li></ul>
+<h4>Adressage des appareils</h4>
+<table class="doc-table"><tr><th>Mode</th><th>Règles à respecter</th></tr>
+<tr><td>Automatique (DHCP)</td><td>Le serveur DHCP de la Box doit être activé. Sinon l'appareil prend une adresse 169.254.x.x (APIPA) et ne communique pas.</td></tr>
+<tr><td>Statique (manuel)</td><td>Adresse dans le réseau de la Box · pas l'adresse du réseau (.0) ni de diffusion (.255 en /24) · adresse unique (pas de conflit) · même masque · <b>passerelle = adresse de la Box</b>.</td></tr></table>
+<p>En statique, choisissez une adresse <b>hors de la plage DHCP</b> pour éviter les conflits.</p>` },
+
+    { id: 'svc-diag', group: 'Équipements actifs & services', title: 'Dépanner un service : erreurs typiques', html: `
+<p>Commencez toujours par la <b>couche physique</b> (photomètre, voyants de l'ONT), puis suivez le diagnostic de l'onglet « Configuration » : il indique la première étape en défaut.</p>
+<table class="doc-table"><tr><th>Symptôme dans le diagnostic</th><th>Cause probable</th><th>Où corriger</th></tr>
+<tr><td>Liaison optique : LOS</td><td>Fibre coupée, mauvais brassage, connecteur</td><td>Réseau optique (mesures)</td></tr>
+<tr><td>ONT non autorisée</td><td>Numéro de série non déclaré ou mal saisi</td><td>OLT → Autorisation des ONT</td></tr>
+<tr><td>Port SFP désactivé</td><td>Port de l'abonné non activé</td><td>Switch AON → Ports abonnés</td></tr>
+<tr><td>Le profil ne comprend pas le service</td><td>Mauvais profil (ex. pas de TV)</td><td>OLT ou switch AON → profil</td></tr>
+<tr><td>Collecte non raccordée au cœur / service désactivé</td><td>Réglage de la collecte</td><td>Routeur de collecte</td></tr>
+<tr><td>VLAN différents</td><td>VLAN mal saisi sur la Box ou un équipement</td><td>Box (WAN) ou OLT / switch / collecte</td></tr>
+<tr><td>Box en DHCP, collecte en PPPoE</td><td>Mauvais mode WAN</td><td>Box → WAN</td></tr>
+<tr><td>Identifiant inconnu / mot de passe incorrect</td><td>Erreur de saisie PPPoE</td><td>Box → WAN (ou comptes de la collecte)</td></tr>
+<tr><td>Serveur DHCP désactivé (APIPA)</td><td>DHCP de la Box coupé</td><td>Box → LAN</td></tr>
+<tr><td>Adresse hors réseau / passerelle incorrecte / conflit</td><td>Erreur d'adressage statique</td><td>Appareil → Adressage IP</td></tr>
+<tr><td>Câble Cat6 de plus de 100 m</td><td>Limite Ethernet cuivre</td><td>Câble Ethernet</td></tr></table>
+<p>Après chaque correction, relisez le diagnostic : une autre étape peut être en défaut derrière la première.</p>
+<h3>Pannes de configuration cachées</h3>
+
+<p>Tant qu'une panne de configuration est <b>cachée</b>, le diagnostic n'affiche que des <b>symptômes</b>, comme le ferait un vrai équipement : « ONT détectée mais refusée par l'OLT », « Session PPPoE refusée », « Aucune réponse du réseau opérateur », « adresse 169.254.x.x (APIPA) »… L'étape en défaut indique où chercher : comparez alors la configuration des équipements concernés. Dès que la bonne valeur est rétablie, la panne est déclarée <b>corrigée</b>.</p>
+<p><b>Pour s'entraîner :</b> <a href="tutoriels-imprimables.html#tutoriel-12" target="_blank" rel="noopener">tutoriel 12 — Les pannes de configuration</a>, <a href="tp-complementaires-imprimables.html#tp-12" target="_blank" rel="noopener">TP 12 — Dépannage des services sur sujet</a> et <a href="exercices-imprimables.html#exercices-services" target="_blank" rel="noopener">exercices 12 à 14</a> (adressage IP, débit GPON, diagnostic d'un service).</p>` },
+
+    { id: 'print', group: 'Supports imprimables', title: 'Livrets à imprimer (tutoriels, TP, exercices)', html: `
+<p>Trois livrets au format <b>A4</b> accompagnent le simulateur. Ils s'ouvrent dans un nouvel onglet, fonctionnent sans Internet, et s'impriment (ou s'enregistrent en PDF) avec le bouton <b>Imprimer</b> en haut de page.</p>
+<div class="print-cards">
+<a class="print-card" href="tutoriels-imprimables.html" target="_blank" rel="noopener">
+<img src="docs/captures/livrets/apercu-tutoriels.jpg" alt="Aperçu d'une page des tutoriels : tutoriel 12, les pannes de configuration" loading="lazy">
+<b>Tutoriels</b><small>22 pages · ${ELEVE ? 16 : 18} captures d'écran</small>
+<span>12 tutoriels pas à pas : interface, équipements, câblage, bâtiments, bilan optique, photomètre, VFL, OTDR, pannes, TP et fichiers, équipements actifs et services, pannes de configuration. Fiche mémo et grille d'auto-évaluation.</span></a>
+<a class="print-card" href="tp-complementaires-imprimables.html" target="_blank" rel="noopener">
+<img src="docs/captures/livrets/apercu-tp.jpg" alt="Aperçu d'une page du TP 12 : dépannage des services sur sujet" loading="lazy">
+<b>TP complémentaires 6 à 9 et 12</b><small>${ELEVE ? '11 pages' : '16 pages · corrigé en images'}</small>
+<span>Liaison FTTH de A à Z, ingénierie (coupleur, distance, longueur d'onde, erreurs d'installation), recette d'un immeuble, dépannage sur sujet, dépannage des services (pannes de configuration).</span></a>
+<a class="print-card" href="exercices-imprimables.html" target="_blank" rel="noopener">
+<img src="docs/captures/livrets/apercu-exercices.jpg" alt="Aperçu d'une page de l'exercice 14 : diagnostic d'un service" loading="lazy">
+<b>${ELEVE ? 'Exercices' : 'Exercices corrigés'}</b><small>${ELEVE ? '9 pages' : '13 pages · corrigé en images'}</small>
+<span>14 exercices : vocabulaire, dB et dBm, atténuation, coupleurs, bilan d'une villa, colonne montante, statut d'un ONT, dimensionnement, APC/UPC, OTDR, diagnostic, adressage IP, débit GPON partagé, diagnostic d'un service.</span></a>
+</div>
+<p class="muted">Cliquez sur un aperçu pour ouvrir le livret dans un nouvel onglet.</p>
+<h4>Nouveautés : équipements actifs et services</h4>
+<p>Les livrets couvrent maintenant la <b>couche service</b> (OLT, routeur de collecte, switch AON, Box, adressage IP) et les <b>pannes de configuration</b>. Accès direct aux nouvelles pages :</p>
+<div class="print-cards">
+<a class="print-card" href="tutoriels-imprimables.html#tutoriel-11" target="_blank" rel="noopener">
+<img src="docs/captures/livrets/apercu-tutoriel-11.jpg" alt="Aperçu du tutoriel 11 : chaîne de service, tableau des équipements configurables et exemple FTTH triple play" loading="lazy">
+<b>Tutoriels 11 et 12</b><small>4 pages · tutoriels</small>
+<span>Équipements actifs et services : onglet « Configuration », diagnostic pas à pas, débit GPON. Pannes de configuration : symptômes, correction.</span></a>
+<a class="print-card" href="tutoriels-imprimables.html#fiche-memo" target="_blank" rel="noopener">
+<img src="docs/captures/livrets/apercu-fiche-memo.jpg" alt="Aperçu de la fiche mémo : valeurs optiques, débits et profils de service, VLAN, adresses usuelles, ordre du diagnostic" loading="lazy">
+<b>Fiche mémo</b><small>1 page · tutoriels</small>
+<span>Valeurs de référence optiques, débits GPON et profils, VLAN 100 / 200 / 300, adresses de la Box, APIPA, ordre du diagnostic.</span></a>
+<a class="print-card" href="tp-complementaires-imprimables.html#tp-12" target="_blank" rel="noopener">
+<img src="docs/captures/livrets/apercu-tp.jpg" alt="Aperçu du TP 12 : dépannage des services sur sujet" loading="lazy">
+<b>TP 12</b><small>${ELEVE ? '2 pages' : '2 pages + corrigé'} · TP complémentaires</small>
+<span>Dépannage des services sur un sujet préparé par l'enseignant : relevé de référence, fiches d'intervention.</span></a>
+<a class="print-card" href="exercices-imprimables.html#exercices-services" target="_blank" rel="noopener">
+<img src="docs/captures/livrets/apercu-exercices-services.jpg" alt="Aperçu des exercices 12 et 13 : adressage IP d'un réseau domestique et débit GPON partagé" loading="lazy">
+<b>Exercices 12 à 14</b><small>${ELEVE ? '2 pages' : '2 pages + corrigé'} · exercices</small>
+<span>Adressage IP (configurations statiques, APIPA), débit GPON partagé, diagnostic d'un service à partir des symptômes.</span></a>
+</div>
+<h4>Conseils d'utilisation</h4>
+<ul>
+<li>Commencez par les <b>tutoriels</b>, puis les TP intégrés 1 à 5 (bouton <b>Exemples &amp; TP</b>), puis les <b>TP complémentaires</b>.</li>
+<li>Parcours <b>couche service</b> : tutoriel 11 → TP intégrés 10 et 11 → tutoriel 12 → TP 12 → exercices 12 à 14.</li>
+<li>Vérifiez vos calculs dans l'onglet <b>Bilan optique</b> : les valeurs du simulateur font référence.</li>
+<li>Les captures des <b>fiches élèves</b> montrent où cliquer et quoi régler, sans donner les résultats.</li>
+
+</ul>` }
+  ];
+
+  global.OptiLabs = { LABS, EXAMPLES, DOCS, Topo };
+})(typeof window !== 'undefined' ? window : globalThis);

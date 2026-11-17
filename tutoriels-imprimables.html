@@ -1,0 +1,802 @@
+<!doctype html>
+<!-- OptiSim FTTx Lab — Livret de tutoriels imprimable — Auteur : Hassami COMPAORE -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutoriels OptiSim FTTx Lab</title>
+<meta name="author" content="Hassami COMPAORE">
+<style>
+  :root { --ink:#0f172a; --muted:#475569; --line:#cbd5e1; --soft:#f1f5f9; --brand:#0f766e; --brand-soft:#ccfbf1; --warn:#b45309; --warn-soft:#fef3c7; --err:#b91c1c; --err-soft:#fee2e2; --ok:#15803d; --ok-soft:#dcfce7; --blue:#1d4ed8; }
+  * { box-sizing: border-box; }
+  html { background:#e2e8f0; }
+  body { margin:0; font: 10.5pt/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:var(--ink); background:#e2e8f0; }
+  .toolbar { position:sticky; top:0; z-index:5; display:flex; gap:12px; align-items:center; justify-content:center; padding:10px 16px; background:#0f172a; color:#fff; font-size:10.5pt; }
+  .toolbar button { font:inherit; font-weight:600; padding:6px 14px; border-radius:6px; border:0; background:#22c55e; color:#052e16; cursor:pointer; }
+  .sheet { width:210mm; min-height:297mm; margin:12px auto; padding:16mm 16mm 18mm; background:#fff; box-shadow:0 2px 10px #0002; position:relative; }
+  @media (max-width: 820px) { .sheet { width:auto; min-height:0; margin:12px 16px; padding:20px 16px; } }
+  h1,h2,h3,h4 { line-height:1.2; margin:0 0 .5em; }
+  h1 { font-size:24pt; }
+  h2 { font-size:16pt; color:var(--brand); border-bottom:2px solid var(--brand); padding-bottom:4px; margin-top:0; }
+  h3 { font-size:12.5pt; margin-top:1.1em; }
+  p { margin:.4em 0 .7em; }
+  ul,ol { margin:.3em 0 .8em; padding-left:1.4em; }
+  li { margin:.15em 0; }
+  table { width:100%; border-collapse:collapse; margin:.5em 0 1em; font-size:10pt; }
+  th,td { border:1px solid var(--line); padding:4px 7px; text-align:left; vertical-align:top; }
+  th { background:var(--soft); }
+  td.num, th.num { text-align:right; white-space:nowrap; }
+  kbd { font: 600 9.5pt ui-monospace, Menlo, Consolas, monospace; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 5px; background:var(--soft); }
+  .btnlike { display:inline-block; font-weight:600; font-size:9.5pt; border:1px solid var(--line); border-radius:5px; padding:0 6px; background:var(--soft); white-space:nowrap; }
+  .meta { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:9.5pt; color:var(--muted); margin:-4px 0 10px; }
+  .meta b { color:var(--ink); }
+  .box { border:1px solid var(--line); border-left:5px solid var(--brand); background:#f8fafc; border-radius:6px; padding:8px 12px; margin:.6em 0 1em; }
+  .box.tip { border-left-color:var(--blue); }
+  .box.warn { border-left-color:var(--warn); background:var(--warn-soft); }
+  .box.err { border-left-color:var(--err); background:var(--err-soft); }
+  .box > :first-child { margin-top:0; } .box > :last-child { margin-bottom:0; }
+  .steps { counter-reset: s; list-style:none; padding-left:0; }
+  .steps > li { counter-increment: s; position:relative; padding-left:34px; margin:.45em 0; }
+  .steps > li::before { content: counter(s); position:absolute; left:0; top:0; width:24px; height:24px; border-radius:50%; background:var(--brand); color:#fff; font-weight:700; font-size:10pt; display:flex; align-items:center; justify-content:center; }
+  .check { list-style:none; padding-left:0; }
+  .check li::before { content:"☐ "; font-size:12pt; }
+  .answer { border-bottom:1px dotted #94a3b8; height:7.5mm; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; }
+  @media (max-width: 600px) { .grid2 { grid-template-columns:1fr; } }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; vertical-align:middle; margin-right:4px; border:1px solid #0003; }
+  .layout { display:grid; grid-template-columns: 22% 1fr 26%; grid-template-rows: auto 120px auto; gap:4px; font-size:9pt; text-align:center; margin:.6em 0 1em; }
+  .layout div { border:2px solid var(--ink); border-radius:4px; padding:6px 4px; display:flex; align-items:center; justify-content:center; flex-direction:column; }
+  .layout .z1 { grid-column:1 / 4; background:#e0f2fe; }
+  .layout .z2 { background:#dcfce7; }
+  .layout .z3 { background:#f8fafc; }
+  .layout .z4 { background:#fef3c7; }
+  .layout .z5 { grid-column:1 / 4; background:var(--soft); padding:3px; }
+  .num-badge { display:inline-flex; width:20px; height:20px; border-radius:50%; background:var(--ink); color:#fff; font-weight:700; align-items:center; justify-content:center; font-size:9pt; margin-bottom:2px; }
+  .chain { display:flex; flex-wrap:wrap; align-items:center; gap:4px; font-size:9.5pt; margin:.5em 0 1em; }
+  .chain span { border:1.5px solid var(--ink); border-radius:5px; padding:3px 7px; background:#fff; font-weight:600; }
+  .chain i { font-style:normal; color:var(--muted); font-size:8.5pt; }
+  .cover { display:flex; flex-direction:column; justify-content:space-between; }
+  .cover .logo { display:flex; align-items:center; gap:14px; }
+  .cover h1 { font-size:30pt; margin:0; }
+  .cover .sub { font-size:14pt; color:var(--muted); }
+  .toc { columns:1; font-size:11pt; }
+  .toc li { margin:.35em 0; }
+  .foot { position:absolute; left:16mm; right:16mm; bottom:8mm; display:flex; justify-content:space-between; font-size:8pt; color:var(--muted); border-top:1px solid var(--line); padding-top:3px; }
+  @media (max-width: 820px) { .foot { position:static; margin-top:16px; } }
+  .avoid { break-inside:avoid; page-break-inside:avoid; }
+  figure.shot { margin:.6em 0 1em; break-inside:avoid; page-break-inside:avoid; text-align:center; }
+  figure.shot img { display:inline-block; max-width:100%; height:auto; border:1px solid var(--line); border-radius:6px; box-shadow:0 1px 4px #0001;  max-height:118mm; width:auto; }
+  figure.shot figcaption { font-size:8.5pt; color:var(--muted); margin-top:3px; font-style:italic; }
+  .side { display:grid; grid-template-columns:1fr 68mm; gap:12px; align-items:start; }
+  .side.wide { grid-template-columns:1fr 78mm; }
+  .side > figure.shot { margin-top:0; }
+  .side figure.shot img { max-height:130mm; }
+  @media (max-width: 600px) { .side, .side.wide { grid-template-columns:1fr; } }
+
+  @page { size:A4; margin:0; }
+  @media print {
+    html, body { background:#fff; }
+    .toolbar { display:none; }
+    .sheet { margin:0; box-shadow:none; width:210mm; min-height:297mm; break-after:page; page-break-after:always; }
+    .sheet:last-child { break-after:auto; page-break-after:auto; }
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">Livret de tutoriels — format A4 <button onclick="window.print()">Imprimer / enregistrer en PDF</button></div>
+
+<!-- ============================ COUVERTURE ============================ -->
+<section class="sheet cover">
+  <div>
+    <div class="logo">
+      <svg viewBox="0 0 32 32" width="64" height="64" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0b1220"/><path d="M4 22 C12 22 12 10 20 10 S28 16 28 16" stroke="#22c55e" stroke-width="3" fill="none"/><circle cx="4" cy="22" r="3" fill="#eab308"/><circle cx="28" cy="16" r="2.5" fill="#22c55e"/></svg>
+      <div><h1>OptiSim FTTx Lab</h1><div class="sub">Livret de tutoriels — Prise en main et maîtrise du simulateur</div></div>
+    </div>
+    <p style="margin-top:14mm;font-size:12pt">Ce livret accompagne l'élève de <b>Bac Pro Télécommunications</b> pas à pas : découvrir l'interface, construire un réseau fibre, lire un bilan optique, utiliser les instruments de mesure et dépanner une liaison. Chaque tutoriel se termine par une courte vérification « Je sais faire ».</p>
+
+    <h3 style="margin-top:10mm">Sommaire</h3>
+    <ol class="toc">
+      <li><b>Découvrir l'interface</b> — les 4 zones, les 3 modes, les couleurs</li>
+      <li><b>Placer et régler des équipements</b> — boîte à outils, inspecteur, vue</li>
+      <li><b>Relier les équipements par des câbles</b> — sens amont → aval, raccordements</li>
+      <li><b>Bâtiments et immeubles</b> — gaine intérieure, étages, colonne montante</li>
+      <li><b>Lire le bilan optique</b> — pertes, puissance reçue, marge, statuts</li>
+      <li><b>Le photomètre</b> — mesurer une puissance en dBm</li>
+      <li><b>Le stylo optique (VFL)</b> — suivre une fibre et voir une fuite</li>
+      <li><b>Le réflectomètre (OTDR)</b> — lire une courbe et un tableau d'événements</li>
+      <li><b>Simuler et dépanner des pannes</b> — méthode de dépannage</li>
+      <li><b>TP, sauvegarde et rendu du travail</b></li>
+      <li><b>Équipements actifs et services</b> — configuration, diagnostic pas à pas</li>
+      <li><b>Les pannes de configuration</b> — symptômes et correction</li>
+    </ol>
+    <p>Fin du livret : <b>fiche mémo</b> (valeurs de référence) et <b>grille d'auto-évaluation</b>.</p>
+  </div>
+  <div class="box tip">
+    <p><b>Avant de commencer :</b> ouvrez le fichier <code>index.html</code> du dossier OptiSim dans un navigateur (Chrome, Firefox, Edge). Aucune installation ni connexion Internet n'est nécessaire.</p>
+  </div>
+  <div class="foot"><span>OptiSim FTTx Lab — Tutoriels</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T1 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 1 — Découvrir l'interface</h2>
+  <div class="meta"><span><b>Durée :</b> 15 min</span><span><b>Objectif :</b> se repérer dans l'écran et connaître les 3 modes de travail</span></div>
+
+  <h3>Les zones de l'écran</h3>
+  <div class="layout" aria-hidden="true">
+    <div class="z1"><span class="num-badge">1</span>Barre supérieure : Nouveau · Ouvrir · Sauvegarder · ↶ ↷ · Modes · Exemples &amp; TP · Documentation · ◐</div>
+    <div class="z2"><span class="num-badge">2</span>Boîte à outils<br><small>équipements, câbles, instruments</small></div>
+    <div class="z3"><span class="num-badge">3</span>Canevas<br><small>le schéma du réseau</small></div>
+    <div class="z4"><span class="num-badge">4</span>Inspecteur<br><small>Propriétés · Bilan optique · OTDR</small></div>
+    <div class="z5"><small>Barre d'état : mode en cours + <b>conseil de l'action à faire</b></small></div>
+  </div>
+  <table>
+    <tr><th style="width:28%">Zone</th><th>À quoi elle sert</th></tr>
+    <tr><td><b>1. Barre supérieure</b></td><td>Gérer les fichiers, annuler/rétablir, changer de <b>mode</b>, ouvrir la bibliothèque <span class="btnlike">Exemples &amp; TP</span> et la <span class="btnlike">Documentation</span>, changer de thème (clair/sombre) avec <span class="btnlike">◐</span>.</td></tr>
+    <tr><td><b>2. Boîte à outils</b></td><td>Tous les équipements classés par famille (NRO, extérieur, bâtiments, abonnés), les câbles et les instruments de mesure. Une <b>barre de recherche</b> permet de trouver un élément par son nom.</td></tr>
+    <tr><td><b>3. Canevas</b></td><td>Le plan de travail quadrillé où l'on construit le réseau. Molette = zoom, glisser le fond = déplacer la vue.</td></tr>
+    <tr><td><b>4. Inspecteur</b></td><td>Affiche les réglages de l'élément sélectionné (onglet <b>Propriétés</b>), le <b>Bilan optique</b> détaillé et la courbe <b>OTDR</b>.</td></tr>
+    <tr><td><b>Barre d'état</b> (en bas)</td><td>Rappelle le mode actif et donne, à chaque instant, la prochaine action attendue. <b>Lisez-la quand vous êtes bloqué !</b></td></tr>
+  </table>
+
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/interface.jpg" style="max-height:104mm" alt="Écran complet d'OptiSim : boîte à outils à gauche, immeuble du TP 3 sur le canevas, inspecteur de l'ONT à droite">
+    <figcaption>L'écran d'OptiSim avec le TP 3 chargé : boîte à outils (gauche), panneau des consignes du TP et canevas (centre), inspecteur de l'ONT sélectionné (droite).</figcaption>
+  </figure>
+  <div class="foot"><span>Tutoriel 1 — Interface (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>Tutoriel 1 — Découvrir l'interface (suite)</h2>
+  <h3>La barre supérieure</h3>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/barre-superieure.jpg" alt="Barre supérieure d'OptiSim en mode Simulation de pannes">
+    <figcaption>De gauche à droite : fichiers, annuler / rétablir, sélecteur de mode (ici « Simulation de pannes »), boutons des pannes, bibliothèque, documentation, thème.</figcaption>
+  </figure>
+
+  <h3>Les 3 modes de travail</h3>
+  <table>
+    <tr><th style="width:28%">Mode</th><th>On y fait…</th></tr>
+    <tr><td><span class="btnlike">Conception</span></td><td>Placer les équipements, tirer les câbles, régler les propriétés.</td></tr>
+    <tr><td><span class="btnlike">Mesure / Test</span></td><td>Utiliser le photomètre, l'OTDR et le VFL, comme un technicien sur le terrain.</td></tr>
+    <tr><td><span class="btnlike">Simulation de pannes</span></td><td>Injecter des pannes (visibles ou cachées), les révéler, les réparer.</td></tr>
+  </table>
+
+  <h3>Le code couleur</h3>
+  <div class="grid2">
+    <table>
+      <tr><th colspan="2">Badges d'état des équipements</th></tr>
+      <tr><td><span class="dot" style="background:#22c55e"></span>Vert</td><td>OK : puissance correcte</td></tr>
+      <tr><td><span class="dot" style="background:#f59e0b"></span>Orange</td><td>Signal faible : marge &lt; 3 dB</td></tr>
+      <tr><td><span class="dot" style="background:#ef4444"></span>Rouge</td><td>LOS (perte de signal) ou saturation</td></tr>
+      <tr><td><span class="dot" style="background:#94a3b8"></span>Gris</td><td>Non raccordé / pas de lumière</td></tr>
+    </table>
+    <table>
+      <tr><th colspan="2">Couleur des ports</th></tr>
+      <tr><td><span class="dot" style="background:#22c55e"></span>Vert</td><td>Connecteur <b>APC</b> (poli en angle)</td></tr>
+      <tr><td><span class="dot" style="background:#3b82f6"></span>Bleu</td><td>Connecteur <b>UPC</b> (poli droit)</td></tr>
+      <tr><td><span class="dot" style="background:#eab308"></span>Jaune</td><td>Port cuivre <b>RJ45</b> (Ethernet)</td></tr>
+      <tr><td colspan="2"><small>Entrées à <b>gauche</b> de l'équipement, sorties à <b>droite</b>.</small></td></tr>
+    </table>
+  </div>
+
+  <h3>Raccourcis clavier</h3>
+  <table>
+    <tr><td><kbd>Suppr</kbd></td><td>Supprimer l'élément sélectionné</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Annuler / rétablir</td></tr>
+    <tr><td><kbd>Échap</kbd></td><td>Abandonner l'outil en cours</td><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Sauvegarder (fichier JSON)</td></tr>
+    <tr><td><kbd>F</kbd></td><td>Recadrer la vue sur tout le réseau</td><td>Molette</td><td>Zoom avant / arrière</td></tr>
+  </table>
+
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>nommer les 4 zones de l'écran et leur rôle ;</li><li>passer d'un mode à l'autre ;</li><li>expliquer ce que signifie un badge orange et un port bleu.</li></ul></div>
+  <div class="foot"><span>Tutoriel 1 — Interface (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T2 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 2 — Placer et régler des équipements</h2>
+  <div class="meta"><span><b>Durée :</b> 15 min</span><span><b>Objectif :</b> ajouter, configurer, dupliquer et supprimer des équipements</span></div>
+
+  <h3>Ajouter un équipement</h3>
+  <ol class="steps">
+    <li>Cliquez sur <span class="btnlike">Nouveau</span> pour partir d'un canevas vide.</li>
+    <li>Dans la boîte à outils, famille <b>Actifs &amp; Répartition (NRO)</b>, <b>glissez</b> l'« OLT » sur le canevas. <br><small>Variante : un simple clic sur l'élément le pose au centre de la vue.</small></li>
+    <li>Ajoutez de la même façon un « ODF / Répartiteur optique », un « SRO / PM », une « PTO » et un « ONT / ONU ».</li>
+    <li>Rangez-les de gauche à droite dans l'ordre du réseau : <b>OLT → ODF → SRO → PTO → ONT</b>. Pour déplacer un équipement, faites-le glisser.</li>
+  </ol>
+  <div class="box tip"><p><b>Astuce :</b> tapez « pto » dans la zone <i>Rechercher un équipement…</i> pour filtrer la boîte à outils.</p></div>
+
+  <h3>Régler un équipement avec l'inspecteur</h3>
+  <ol class="steps">
+    <li>Cliquez sur l'OLT : l'onglet <b>Propriétés</b> de l'inspecteur affiche ses réglages.</li>
+    <li>Renommez-le « OLT NRO » dans le champ <b>Nom / repère</b>.</li>
+    <li>Relevez ses valeurs par défaut :
+      <table style="width:auto">
+        <tr><td>Puissance d'émission</td><td class="answer" style="width:40mm"></td><td>dBm</td></tr>
+        <tr><td>Longueur d'onde</td><td class="answer"></td><td>nm</td></tr>
+        <tr><td>Classe optique</td><td class="answer"></td><td></td></tr>
+      </table></li>
+    <li>Cliquez sur le SRO et regardez le champ <b>Coupleur intégré</b>. Laissez « 1:8 » pour l'instant.</li>
+    <li>Cliquez sur l'ONT : relevez sa <b>sensibilité</b> (−27 dBm) et son seuil de <b>saturation</b> (−8 dBm). Ces deux valeurs bornent la plage de fonctionnement.</li>
+  </ol>
+
+  <h3>Dupliquer, supprimer, annuler</h3>
+  <ul>
+    <li><b>Dupliquer :</b> sélectionnez l'équipement puis le bouton <span class="btnlike">Dupliquer</span> de l'inspecteur (la copie est décalée et nommée « (copie) »).</li>
+    <li><b>Supprimer :</b> sélection puis <kbd>Suppr</kbd>. Les câbles reliés sont supprimés avec lui.</li>
+    <li><b>Annuler une erreur :</b> <kbd>Ctrl</kbd>+<kbd>Z</kbd> (ou <span class="btnlike">↶</span>), rétablir avec <kbd>Ctrl</kbd>+<kbd>Y</kbd>.</li>
+  </ul>
+
+  <h3>Se déplacer dans le schéma</h3>
+  <ul>
+    <li><b>Zoom :</b> molette de la souris, ou boutons <span class="btnlike">+</span> <span class="btnlike">−</span> en bas du canevas.</li>
+    <li><b>Déplacer la vue :</b> cliquer-glisser sur le fond quadrillé.</li>
+    <li><b>Tout voir :</b> touche <kbd>F</kbd> ou bouton <span class="btnlike">⤢</span>.</li>
+  </ul>
+
+  <div class="box warn"><p><b>À retenir :</b> l'interface signale par une petite notification en bas à droite chaque action réalisée (« Câble créé », « Panne injectée »…). Lisez-les !</p></div>
+
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>placer un équipement par glisser-déposer et par clic ;</li><li>renommer et modifier une propriété dans l'inspecteur ;</li><li>annuler une erreur et recadrer la vue.</li></ul></div>
+  <div class="foot"><span>Tutoriel 2 — Équipements</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T3 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 3 — Relier les équipements par des câbles</h2>
+  <div class="meta"><span><b>Durée :</b> 20 min</span><span><b>Prérequis :</b> tutoriel 2 (OLT, ODF, SRO, PTO, ONT posés)</span></div>
+
+  <div class="box err"><p><b>Règle d'or :</b> on câble toujours de l'<b>amont</b> (côté NRO, la source) vers l'<b>aval</b> (côté abonné). On clique d'abord sur l'équipement de départ, puis sur l'équipement d'arrivée. Le simulateur calcule le <b>sens descendant</b> de la lumière.</p></div>
+
+  <h3>Créer un câble</h3>
+  <div class="side wide">
+  <ol class="steps">
+    <li>Dans <b>Câbles &amp; jarretières</b>, cliquez sur « Jarretière optique (patch cord) ». La barre d'état indique : <i>cliquez sur l'équipement de départ (amont)</i>.</li>
+    <li>Cliquez sur l'<b>OLT</b>, puis sur l'<b>ODF</b>. Une fenêtre s'ouvre.</li>
+    <li>Vérifiez les extrémités affichées (<i>Amont (sortie)</i> → <i>Aval (entrée)</i>), saisissez <b>2 m</b>, connecteurs <b>SC/APC</b>, puis <span class="btnlike">Créer le câble</span>.</li>
+    <li>Choisissez « Câble Monomode G.652D », cliquez ODF puis SRO. Saisissez <b>2</b> et l'unité <b>km</b>. Raccordement amont et aval : <b>Épissure par fusion (0,05 dB)</b>.</li>
+    <li>Choisissez « Câble Drop extérieur », reliez SRO → PTO : <b>80 m</b>, fusion aux deux extrémités.</li>
+    <li>Terminez par une jarretière <b>PTO → ONT</b> (2 m, SC/APC). Les badges passent au vert et l'ONT allume ses voyants.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/fenetre-cable.jpg" alt="Fenêtre Nouveau câble : extrémités amont et aval, longueur, raccordements, capacité">
+    <figcaption>La fenêtre de création d'un câble drop SRO → PTO.</figcaption>
+  </figure>
+  </div>
+  <p>Pour abandonner un câble commencé : <kbd>Échap</kbd>. Pour modifier un câble existant : cliquez dessus, l'inspecteur affiche sa longueur, ses raccordements et ses ports.</p>
+
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/liaison-tp6.jpg" alt="Liaison terminée : OLT, ODF, SRO, PTO, ONT, routeur et PC, tous les badges verts">
+    <figcaption>Résultat attendu : OLT → ODF → SRO 1:8 → PTO → ONT (−8,72 dBm), puis routeur et PC en Cat6. Tous les badges sont verts.</figcaption>
+  </figure>
+
+  <div class="foot"><span>Tutoriel 3 — Câblage (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>Tutoriel 3 — Relier les équipements par des câbles (suite)</h2>
+
+  <h3>Quel câble pour quel usage ?</h3>
+  <table>
+    <tr><th>Câble</th><th>Usage</th><th>Raccordement habituel</th></tr>
+    <tr><td>Monomode G.652D</td><td>Transport et distribution extérieurs (NRO → SRO → PBO)</td><td>Épissure fusion</td></tr>
+    <tr><td>Drop G.657A2</td><td>Branchement de l'abonné : PBO → PTO</td><td>Épissure fusion</td></tr>
+    <tr><td>Intérieur LSZH</td><td>Palier d'immeuble : PBO d'étage → PTO</td><td>Épissure fusion</td></tr>
+    <tr><td>Colonne montante</td><td>Vertical : PMI → PBO d'étage (longueur automatique)</td><td>Fusion côté PMI, aucun en passage</td></tr>
+    <tr><td>Multimode OM3 / OM4</td><td>Dorsale courte d'entreprise ou de campus (850 nm)</td><td>Connecteurs</td></tr>
+    <tr><td>Jarretière</td><td>Brassage court (1 à 5 m) entre ODF, PTO et actifs</td><td>« Aucun » : connecteurs comptés dans l'équipement</td></tr>
+    <tr><td>Ethernet Cat6</td><td>Cuivre : ONT / switch → PC, téléphone, décodeur (<b>100 m maxi</b>)</td><td>—</td></tr>
+  </table>
+
+  <h3>Le brassage port à port sur l'ODF</h3>
+  <p>Sur un ODF (et une PTO), le port <b>Amont n</b> est relié uniquement au port <b>Aval n</b>. Si une jarretière est branchée sur le mauvais port, l'abonné ne reçoit plus rien : c'est une <b>erreur de brassage</b>. Pour changer de port, sélectionnez le câble et modifiez le port dans l'inspecteur.</p>
+
+  <div class="box warn"><p><b>Ne jamais mélanger APC (vert) et UPC (bleu) :</b> le simulateur compte +3 dB par accouplement incompatible et affiche un avertissement — comme sur le terrain, où l'on risque d'abîmer les férules.</p></div>
+
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>créer un câble dans le bon sens (amont → aval) ;</li><li>choisir le bon type de câble et le bon raccordement ;</li><li>modifier la longueur ou le port d'un câble existant.</li></ul></div>
+  <div class="foot"><span>Tutoriel 3 — Câblage (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T4 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 4 — Bâtiments et immeubles</h2>
+  <div class="meta"><span><b>Durée :</b> 20 min</span><span><b>Objectif :</b> raccorder une villa et un immeuble R+N</span></div>
+
+  <h3>Le bâtiment simple (villa, boutique, bureau)</h3>
+  <ol class="steps">
+    <li>Glissez un « Bâtiment simple » sur le canevas. C'est une <b>zone</b> : on y dépose des équipements.</li>
+    <li>Sélectionnez le bâtiment et réglez la <b>Gaine intérieure (adduction → PTO)</b>, par exemple 15 m.</li>
+    <li>Faites glisser la PTO et l'ONT <b>à l'intérieur</b> du cadre : une notification confirme « PTO placé dans « Villa » ».</li>
+    <li>Tirez un drop depuis le PBO (extérieur) vers la PTO. La fenêtre prévient : <i>la gaine intérieure (15 m) sera ajoutée automatiquement</i>.</li>
+  </ol>
+  <div class="box tip"><p><b>Pourquoi ?</b> Sur le terrain, le câble entre par le point d'adduction puis chemine dans la gaine jusqu'à la PTO. La longueur réelle de fibre = longueur du drop + longueur de gaine.</p></div>
+
+  <h3>L'immeuble multi-niveaux (R+N)</h3>
+  <ol class="steps">
+    <li>Glissez un « Immeuble multi-niveaux ». Dans l'inspecteur, réglez le <b>nombre d'étages</b> (R+1 à R+12), le <b>sous-sol</b> et la <b>hauteur d'étage</b> (3 m par défaut).</li>
+    <li>Placez le <b>PMI</b> au sous-sol (ou au RDC), un <b>PBO intérieur</b> dans chaque étage desservi, les <b>PTO</b> et <b>ONT</b> dans les logements.</li>
+    <li>Reliez le PMI au PBO du 1<sup>er</sup> étage avec le « Câble de colonne montante » : gardez <b>Longueur auto</b> cochée.</li>
+    <li>Pour monter à l'étage suivant, partez d'une sortie libre du PBO avec un nouveau câble de colonne, raccordement <b>« Aucun »</b> aux deux extrémités (la fibre passe sans être coupée).</li>
+    <li>Reliez chaque PBO à la PTO du logement avec un câble <b>intérieur LSZH</b> (épissure fusion).</li>
+  </ol>
+
+  <div class="foot"><span>Tutoriel 4 — Bâtiments (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>Tutoriel 4 — Bâtiments et immeubles (suite)</h2>
+
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/immeuble.jpg" style="max-height:108mm" alt="Immeuble R+3 : PMI au sous-sol, colonne montante orange dans la gaine technique, PBO, PTO et ONT à chaque étage">
+    <figcaption>Résidence R+3 (TP 3) : PMI au sous-sol, colonne montante dans la gaine technique, un PBO par étage, puis PTO et ONT des appartements.</figcaption>
+  </figure>
+
+  <h3>Calcul de la colonne montante</h3>
+  <p><b>Longueur = écart d'étages × hauteur d'étage.</b> Exemple : du sous-sol (niveau −1) au 3<sup>e</sup> étage avec 3 m par étage : (3 − (−1)) × 3 = <b>12 m</b>.</p>
+  <table style="width:auto">
+    <tr><th>Trajet</th><th>Écart d'étages</th><th>Longueur (h = 3 m)</th></tr>
+    <tr><td>Sous-sol → étage 1</td><td class="answer" style="width:30mm"></td><td class="answer" style="width:30mm"></td></tr>
+    <tr><td>Étage 1 → étage 2</td><td class="answer"></td><td class="answer"></td></tr>
+    <tr><td>RDC → étage 5 (h = 2,8 m)</td><td class="answer"></td><td class="answer"></td></tr>
+  </table>
+
+  <h3>Vocabulaire à connaître</h3>
+  <table>
+    <tr><td><b>PMI</b></td><td>Point de Mutualisation d'Immeuble : armoire en pied d'immeuble qui reçoit le câble opérateur (brassage, parfois coupleur).</td></tr>
+    <tr><td><b>PBO d'étage</b></td><td>Boîtier sur le palier (gaine technique) : on y « pique » les fibres de la colonne vers les logements.</td></tr>
+    <tr><td><b>Gaine technique</b></td><td>Passage vertical réservé aux câbles (bande en pointillés sur le canevas).</td></tr>
+    <tr><td><b>PTO</b></td><td>Prise Terminale Optique, dans le logement. L'ONT s'y branche par une jarretière.</td></tr>
+  </table>
+
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>régler la gaine intérieure d'une villa ;</li><li>construire un immeuble avec PMI, colonne montante et PBO d'étage ;</li><li>calculer la longueur d'une colonne montante.</li></ul></div>
+  <div class="foot"><span>Tutoriel 4 — Bâtiments (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T5 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 5 — Lire le bilan optique</h2>
+  <div class="meta"><span><b>Durée :</b> 20 min</span><span><b>Prérequis :</b> la liaison du tutoriel 3</span></div>
+
+  <div class="box"><p style="font-size:13pt;text-align:center;margin:.2em 0"><b>P<sub>reçue</sub> = P<sub>émise</sub> − Σ pertes</b> &nbsp;&nbsp;·&nbsp;&nbsp; <b>Marge = P<sub>reçue</sub> − Sensibilité</b> (≥ 3 dB conseillés)</p></div>
+
+  <h3>Afficher le bilan</h3>
+  <ol class="steps">
+    <li>Sélectionnez l'<b>ONT</b>, puis l'onglet <b>Bilan optique</b> de l'inspecteur.</li>
+    <li>Le bilan liste chaque perte <b>tronçon par tronçon</b>, regroupée par catégorie : NRO, Transport &amp; distribution, ODF/PMI, Colonne montante, PBO d'étage, Branchement abonné.</li>
+    <li>En bas : atténuation totale, puissance reçue, marge et statut.</li>
+  </ol>
+
+  <h3>Exemple guidé : la liaison du tutoriel 3 (λ = 1490 nm)</h3>
+  <div class="side">
+  <table style="margin-top:0">
+    <tr><th>Élément</th><th>Calcul</th><th class="num">Perte (dB)</th></tr>
+    <tr><td>Traversée ODF</td><td>1 connecteur</td><td class="num">0,50</td></tr>
+    <tr><td>Épissures du câble de transport</td><td>2 × 0,05</td><td class="num">0,10</td></tr>
+    <tr><td>Fibre G.652D</td><td>2 km × 0,25 dB/km</td><td class="num">0,50</td></tr>
+    <tr><td>SRO : brassage + coupleur 1:8</td><td>0,5 + 10,5</td><td class="num">11,00</td></tr>
+    <tr><td>Épissures du drop</td><td>2 × 0,05</td><td class="num">0,10</td></tr>
+    <tr><td>Fibre du drop</td><td>0,08 km × 0,25 dB/km</td><td class="num">0,02</td></tr>
+    <tr><td>Connecteur PTO</td><td>1 connecteur</td><td class="num">0,50</td></tr>
+    <tr><th colspan="2">Atténuation totale</th><th class="num">12,72</th></tr>
+  </table>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/bilan.jpg" alt="Onglet Bilan optique de l'ONT : pertes par catégorie, total 12,72 dB, puissance reçue −8,72 dBm, statut OK">
+    <figcaption>Le même bilan dans l'onglet « Bilan optique ».</figcaption>
+  </figure>
+  </div>
+  <p>Puissance reçue : 4 − 12,72 = <b>−8,72 dBm</b>. Marge : −8,72 − (−27) = <b>18,28 dB</b>. L'ONT est dans sa plage [−27 ; −8] dBm : <b>OK</b>, mais proche de la saturation.</p>
+  <div class="box tip"><p><b>Pourquoi les jarretières ne comptent-elles pas ?</b> Leurs connecteurs sont déjà comptés dans la traversée de l'ODF ou de la PTO. On évite ainsi de compter deux fois la même perte.</p></div>
+
+  <div class="foot"><span>Tutoriel 5 — Bilan optique (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>Tutoriel 5 — Lire le bilan optique (suite)</h2>
+
+  <h3>Les statuts</h3>
+  <table>
+    <tr><th>Statut</th><th>Condition</th><th>Que faire ?</th></tr>
+    <tr><td><span class="dot" style="background:#22c55e"></span>OK</td><td>Puissance dans la plage, marge ≥ 3 dB</td><td>Rien : la liaison est conforme.</td></tr>
+    <tr><td><span class="dot" style="background:#f59e0b"></span>Faible</td><td>Marge &lt; 3 dB</td><td>Réduire les pertes (coupleur plus petit, épissures, connecteurs propres).</td></tr>
+    <tr><td><span class="dot" style="background:#ef4444"></span>LOS</td><td>P &lt; sensibilité, ou coupure</td><td>Chercher la coupure ou l'erreur de brassage.</td></tr>
+    <tr><td><span class="dot" style="background:#ef4444"></span>Saturation</td><td>P &gt; seuil de saturation (récepteur actif)</td><td>Ajouter de l'atténuation (atténuateur, coupleur).</td></tr>
+  </table>
+
+  <h3>À vous</h3>
+  <p>Passez le coupleur du SRO de 1:8 à 1:32 (17,2 dB). Calculez, puis vérifiez dans le bilan :</p>
+  <table style="width:auto">
+    <tr><td>Nouvelle atténuation totale</td><td class="answer" style="width:40mm"></td><td>dB</td></tr>
+    <tr><td>Nouvelle puissance reçue</td><td class="answer"></td><td>dBm</td></tr>
+  </table>
+  <div class="foot"><span>Tutoriel 5 — Bilan optique (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T6 + T7 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 6 — Le photomètre (wattmètre optique)</h2>
+  <div class="meta"><span><b>Durée :</b> 10 min</span><span><b>Mesure :</b> la puissance optique en dBm, port par port</span></div>
+  <ol class="steps">
+    <li>Passez en mode <span class="btnlike">Mesure / Test</span>.</li>
+    <li>Dans <b>Outils de mesure</b>, cliquez sur <b>Photomètre</b>. Une fenêtre d'instrument apparaît sur le canevas.</li>
+    <li>Cliquez sur un équipement : l'écran affiche la <b>puissance en dBm</b>, la <b>longueur d'onde</b>, l'<b>atténuation cumulée</b> depuis la source et le <b>statut</b>. Choisissez le port à mesurer s'il y en a plusieurs.</li>
+    <li>Mesurez « de proche en proche », de la source vers l'abonné, et notez les valeurs :</li>
+  </ol>
+  <table>
+    <tr><th>Point de mesure</th><th>ODF</th><th>SRO</th><th>PTO</th><th>ONT</th></tr>
+    <tr><td>Puissance (dBm)</td><td class="answer"></td><td class="answer"></td><td class="answer"></td><td class="answer"></td></tr>
+  </table>
+  <p>La différence entre deux points successifs donne la perte du tronçon. Une chute anormale localise le défaut entre ces deux points.</p>
+  <p>Un affichage <b>LOS</b> signifie qu'aucune lumière n'arrive.</p>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/photometre.jpg" alt="Photomètre sur l'ONT Client : −8,72 dBm à 1490 nm, atténuation cumulée 12,72 dB, statut OK">
+    <figcaption>Le photomètre sur l'ONT : puissance, longueur d'onde, atténuation cumulée, statut et seuils de référence.</figcaption>
+  </figure>
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>mesurer une puissance au photomètre et la comparer au bilan ;</li><li>localiser un tronçon défectueux par mesures de proche en proche.</li></ul></div>
+  <div class="foot"><span>Tutoriel 6 — Photomètre</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>Tutoriel 7 — Le stylo optique (VFL)</h2>
+  <div class="meta"><span><b>Durée :</b> 10 min</span><span><b>Principe :</b> une lumière rouge visible (650 nm) injectée dans la fibre</span></div>
+  <ol class="steps">
+    <li>En mode <span class="btnlike">Mesure / Test</span>, choisissez <b>Stylo optique (VFL)</b>.</li>
+    <li>Cliquez sur l'équipement où injecter la lumière (par exemple l'ODF). Les câbles éclairés s'illuminent en rouge.</li>
+    <li>Choisissez le sens : <b>Sens aval →</b> (vers l'abonné) ou <b>← Sens amont</b> (vers le NRO).</li>
+    <li>La lumière traverse les ODF, PMI et PBO. Au niveau d'une <b>cassure</b> ou d'une <b>courbure excessive</b>, elle <b>s'échappe</b> : une fuite rouge apparaît à l'endroit du défaut et l'instrument indique le nombre de fuites visibles.</li>
+    <li>Cliquez sur <span class="btnlike">Éteindre le VFL</span> pour terminer.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/vfl.jpg" alt="VFL injecté sur l'ODF : câbles éclairés en rouge jusqu'à l'ONT, point de fuite rouge sur le drop">
+    <figcaption>VFL injecté sur l'ODF, sens aval : la lumière rouge suit la fibre et une fuite apparaît sur le drop (panne cachée).</figcaption>
+  </figure>
+  <div class="box tip"><p><b>Usage terrain :</b> le VFL sert à identifier une fibre, vérifier sa continuité et localiser un défaut sur les derniers mètres (PTO, jarretière, boîtier). Sa portée réelle est limitée à quelques kilomètres.</p></div>
+
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>injecter le VFL depuis un équipement ;</li><li>choisir le sens (aval / amont) ;</li><li>repérer une fuite et en déduire l'emplacement du défaut.</li></ul></div>
+  <div class="foot"><span>Tutoriel 7 — VFL</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T8 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 8 — Le réflectomètre (OTDR)</h2>
+  <div class="meta"><span><b>Durée :</b> 25 min</span><span><b>Principe :</b> l'OTDR envoie des impulsions et analyse la lumière renvoyée pour « voir » la fibre sur toute sa longueur</span></div>
+
+  <h3>Réaliser un tir</h3>
+  <div class="side">
+  <ol class="steps">
+    <li>En mode <span class="btnlike">Mesure / Test</span>, choisissez <b>Réflectomètre OTDR</b>, puis cliquez sur l'équipement visé (par exemple l'ONT). Le tir part de la tête de réseau.</li>
+    <li>L'onglet <b>OTDR</b> de l'inspecteur affiche la <b>courbe</b> et le <b>tableau des événements</b> (distance, perte, type).</li>
+    <li>Changez la <b>longueur d'onde</b> (1310 / 1550 nm) et la <b>bobine amorce</b> si besoin.</li>
+    <li>Cliquez sur une ligne du tableau pour <b>zoomer</b> sur l'événement. <span class="btnlike">Vue complète</span> revient à la courbe entière ; <span class="btnlike">Tirer sur la sélection</span> refait un tir vers l'équipement sélectionné.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/otdr.jpg" alt="Onglet OTDR : courbe de rétrodiffusion à 1310 nm et tableau des événements">
+    <figcaption>Tir OTDR à 1310 nm vers l'ONT.</figcaption>
+  </figure>
+  </div>
+
+  <h3>Lire les événements</h3>
+  <table>
+    <tr><th>Sur la courbe</th><th>Type d'événement</th><th>Cause probable</th></tr>
+    <tr><td>Pic puis petite marche</td><td>Réflectif</td><td>Connecteur, ODF, PTO, épissure mécanique</td></tr>
+    <tr><td>Petite marche sans pic</td><td>Non réflectif</td><td>Épissure fusion, courbure</td></tr>
+    <tr><td>Grande marche (plus de 3 dB)</td><td>Coupleur</td><td>Coupleur 1:N (SRO, PMI, PBO)</td></tr>
+    <tr><td>Pic final puis bruit</td><td>Fin de fibre</td><td>Extrémité normale (connecteur ouvert)</td></tr>
+    <tr><td>Chute brutale avant la fin attendue</td><td>Fin anormale (coupure)</td><td>Fibre coupée</td></tr>
+    <tr><td>Pente régulière</td><td>Atténuation linéique</td><td>Fibre elle-même (dB/km)</td></tr>
+  </table>
+
+  <div class="foot"><span>Tutoriel 8 — OTDR (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>Tutoriel 8 — Le réflectomètre (OTDR) (suite)</h2>
+
+  <h3>La bobine amorce</h3>
+  <p>L'OTDR est aveugle sur les premiers mètres. On intercale une <b>bobine amorce de 500 m</b> : le premier connecteur du réseau apparaît donc à 500 m sur la trace.</p>
+  <div class="box"><p><b>Distance réelle dans le réseau = distance lue sur l'OTDR − longueur de la bobine amorce.</b></p></div>
+
+  <h3>Exemple (liaison du tutoriel 3, tir à 1310 nm vers l'ONT)</h3>
+  <table>
+    <tr><th class="num">Distance lue</th><th>Type</th><th class="num">Perte</th><th>Interprétation</th></tr>
+    <tr><td class="num">500 m</td><td>Réflectif</td><td class="num">0,30 dB</td><td>Raccord bobine → réseau</td></tr>
+    <tr><td class="num">502 m</td><td>Réflectif</td><td class="num">0,55 dB</td><td>ODF + épissure du câble de transport</td></tr>
+    <tr><td class="num">2 502 m</td><td>Coupleur</td><td class="num">11,10 dB</td><td>SRO (coupleur 1:8) + épissures</td></tr>
+    <tr><td class="num">2 582 m</td><td>Réflectif</td><td class="num">0,55 dB</td><td>Épissure du drop + PTO</td></tr>
+    <tr><td class="num">2 584 m</td><td>Fin de fibre</td><td class="num">—</td><td>ONT (extrémité)</td></tr>
+  </table>
+
+  <div class="box warn"><p><b>Astuce de pro :</b> une <b>courbure</b> perd plus à 1550 nm qu'à 1310 nm, une <b>épissure</b> perd pareil aux deux longueurs d'onde. Comparer les deux tirs permet de les distinguer.</p></div>
+
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>réaliser un tir OTDR à 1310 et 1550 nm ;</li><li>identifier les événements réflectifs, non réflectifs, coupleur et fin de fibre ;</li><li>calculer la distance réelle d'un défaut en retirant la bobine amorce.</li></ul></div>
+  <div class="foot"><span>Tutoriel 8 — OTDR (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T9 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 9 — Simuler et dépanner des pannes</h2>
+  <div class="meta"><span><b>Durée :</b> 25 min</span><span><b>Objectif :</b> identifier une panne par ses symptômes, intervenir, vérifier</span></div>
+
+  <h3>D'où viennent les pannes ?</h3>
+  <p>Le <b>TP 5</b> contient des pannes cachées. L'enseignant peut aussi vous donner un <b>sujet</b> (fichier <code>sujet-….json</code>, bouton <span class="btnlike">Ouvrir</span>, tutoriel 10) : réseau verrouillé, pannes cachées. Seuls les <b>symptômes</b> sont visibles.</p>
+  
+
+  <h3>Les pannes et leurs symptômes</h3>
+  <table>
+    <tr><th>Panne</th><th>Effet</th><th>Signature de mesure</th></tr>
+    <tr><td>Fibre coupée</td><td>Plus de lumière en aval</td><td>LOS ; OTDR : fin anormale ; VFL : fuite au point de coupure</td></tr>
+    <tr><td>Écrasement / courbure excessive</td><td>+5 dB à 1490/1550 nm (+2,5 dB à 1310 nm)</td><td>OTDR : événement non réflectif plus fort à 1550 qu'à 1310 ; VFL : fuite</td></tr>
+    <tr><td>Mauvaise épissure</td><td>+1,5 dB</td><td>OTDR : marche identique aux deux longueurs d'onde</td></tr>
+    <tr><td>Connecteur sale / brassage défectueux</td><td>+3 dB</td><td>Chute au photomètre au niveau d'un connecteur</td></tr>
+    <tr><td>Inversion de fibre</td><td>L'abonné est relié à la mauvaise fibre</td><td>LOS ou signal sur un autre abonné</td></tr>
+  </table>
+
+  <div class="foot"><span>Tutoriel 9 — Pannes (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>Tutoriel 9 — Simuler et dépanner des pannes (suite)</h2>
+
+  <h3>Méthode de dépannage en 5 étapes</h3>
+  <ol class="steps">
+    <li><b>Constater :</b> voyants de l'ONT (LOS rouge ? PON éteint ?), badge, puissance reçue.</li>
+    <li><b>Localiser le tronçon :</b> photomètre de proche en proche (ODF → SRO/PMI → PBO → PTO → ONT) et comparaison avec le bilan théorique.</li>
+    <li><b>Mesurer la distance :</b> tir OTDR, puis distance réelle = distance lue − bobine amorce. Comparer 1310 et 1550 nm.</li>
+    <li><b>Confirmer :</b> VFL pour voir la fuite ; inspection du connecteur.</li>
+    <li><b>Intervenir puis re-mesurer :</b> mode <span class="btnlike">Dépannage</span>, sélectionner le câble ou l'équipement, puis <span class="btnlike">Reprendre le câble</span> ou <span class="btnlike">Nettoyer / remplacer</span>. <b>Toujours vérifier par une mesure !</b></li>
+  </ol>
+  <div class="side">
+  <div class="box err" style="margin-top:0"><p><b>Règle du jeu :</b> l'intervention remet l'élément en état <b>sans dire s'il était en panne</b>. Intervenez seulement après avoir localisé le défaut : en examen, chaque intervention inutile est pénalisée et toutes vos actions sont enregistrées.</p>
+  </div>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/intervention.jpg" alt="Inspecteur d'un câble en mode Dépannage : section Intervention avec le bouton Reprendre le câble">
+    <figcaption>Mode « Dépannage » : la section « Intervention » d'un câble.</figcaption>
+  </figure>
+  </div>
+
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>associer une panne à sa signature de mesure ;</li><li>appliquer la méthode de dépannage en 5 étapes ;</li><li>intervenir sur l'élément défectueux et vérifier par une mesure.</li></ul></div>
+  <div class="foot"><span>Tutoriel 9 — Pannes (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T10 ============================ -->
+<section class="sheet">
+  <h2>Tutoriel 10 — TP, sauvegarde et rendu du travail</h2>
+  <div class="meta"><span><b>Durée :</b> 10 min</span></div>
+
+  <h3>Charger un TP ou un exemple</h3>
+  <ol class="steps">
+    <li>Cliquez sur <span class="btnlike">Exemples &amp; TP</span>. La bibliothèque présente les 7 TP intégrés (TP 1 à 5 sur la fibre, TP 10 et 11 sur les services) et des exemples (FTTB, campus multimode, FTTH triple play configuré, Active Ethernet…).</li>
+    <li>Pour un TP, lisez la <b>situation professionnelle</b>, les <b>objectifs</b> et les <b>consignes pas-à-pas</b>.</li>
+    <li><span class="btnlike">Charger la topologie du TP</span> ouvre la version <b>à compléter</b>. Un panneau de consignes à cocher s'affiche sur le canevas.</li>
+    
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/bibliotheque-tp.jpg" alt="Bibliothèque Exemples et Travaux Pratiques : les 7 TP, le TP 10 sélectionné et le bouton Charger la topologie du TP" style="max-width:55%">
+    <figcaption>La bibliothèque des TP : liste à gauche, fiche du TP sélectionné à droite.</figcaption>
+  </figure>
+
+  <h3>Sauvegarder et rendre son travail</h3>
+  <ul>
+    <li><span class="btnlike">Sauvegarder</span> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) télécharge un fichier <b>.json</b>. Renommez-le : <code>NOM_Prenom_TP3.json</code>.</li>
+    <li><span class="btnlike">Ouvrir</span> recharge un fichier .json (le vôtre ou celui fourni par l'enseignant).</li>
+    <li>La dernière session est <b>restaurée automatiquement</b> à la réouverture, sur le même poste et le même navigateur. Ne comptez pas dessus pour rendre un travail : sauvegardez !</li>
+    <li><span class="btnlike">Nouveau</span> efface le canevas (une confirmation est demandée).</li>
+  </ul>
+
+  <h3>Passer un examen</h3>
+  <ol class="steps">
+    <li><span class="btnlike">Ouvrir</span> le fichier <code>sujet-….json</code> donné par l'enseignant. Lisez les consignes : le réseau est <b>verrouillé</b> (ni ajout, ni suppression, ni déplacement).</li>
+    <li>Mesurez, intervenez (tutoriel 9), corrigez la configuration (tutoriel 12). Le temps restant est affiché ; vos actions sont enregistrées dans un <b>journal</b>.</li>
+    <li><span class="btnlike">Rendre ma copie</span> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) : nom, prénom, classe, puis remettez le fichier <code>copie-….json</code> à l'enseignant.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/examen-barre.jpg" alt="Barre supérieure pendant un examen : mode Dépannage, temps restant, boutons Consignes et Rendre ma copie">
+    <figcaption>Pendant un examen : temps restant, <b>Consignes</b> et <b>Rendre ma copie</b>.</figcaption>
+  </figure>
+  
+
+  <div class="foot"><span>Tutoriel 10 — TP et fichiers</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T11 ============================ -->
+<section class="sheet" id="tutoriel-11">
+  <h2>Tutoriel 11 — Équipements actifs et services</h2>
+  <div class="meta"><span><b>Durée :</b> 30 min</span><span><b>Objectif :</b> comprendre la chaîne de service et lire l'onglet « Configuration »</span></div>
+
+  <p>La lumière qui arrive à l'ONT ne suffit pas : pour qu'un abonné ait Internet, la TV et le téléphone, les <b>équipements actifs</b> doivent être <b>configurés</b>. Le simulateur évalue cette « couche service » dès qu'un <b>routeur de collecte</b> est raccordé.</p>
+
+  <h3>La chaîne de service</h3>
+  <div class="chain"><span>Routeur de collecte (BNG)</span><i>lien 10 GbE →</i><span>OLT ou switch AON</span><i>fibre →</i><span>ONT</span><i>Cat6 →</i><span>Box</span><i>Cat6 →</i><span>PC · décodeur TV · téléphone</span></div>
+  <table>
+    <tr><th style="width:24%">Équipement</th><th>Ce qu'on y configure</th></tr>
+    <tr><td><b>Routeur de collecte</b></td><td>Raccordement au cœur de réseau, mode d'accès <b>DHCP</b> ou <b>PPPoE</b> (comptes identifiant / mot de passe), pool d'adresses WAN, <b>VLAN</b> Internet / TV / VoIP.</td></tr>
+    <tr><td><b>OLT</b> (GPON)</td><td>VLAN de service, <b>autorisation des ONT</b> par numéro de série, <b>profil</b> de chaque abonné (Internet, Duo, Triple play).</td></tr>
+    <tr><td><b>Switch AON</b></td><td>Une fibre et un port SFP par abonné : on <b>active le port</b> et on choisit son profil.</td></tr>
+    <tr><td><b>ONT</b></td><td>Son <b>numéro de série</b> (inscrit sur l'étiquette).</td></tr>
+    <tr><td><b>Box</b></td><td>WAN (DHCP ou PPPoE, identifiants, VLAN), réseau local (adresse de la Box, serveur DHCP), Wi-Fi.</td></tr>
+    <tr><td><b>Appareils</b></td><td>Adressage automatique (DHCP) ou statique (adresse, masque, passerelle).</td></tr>
+  </table>
+
+  <h3>Explorer un réseau configuré</h3>
+  <ol class="steps">
+    <li><span class="btnlike">Exemples &amp; TP</span> → <b>Exemple Services : FTTH triple play configuré</b> → <span class="btnlike">Charger l'exemple</span>.</li>
+    <li>Repérez le <b>lien de collecte</b> : câble magenta entre le routeur de collecte et l'uplink de l'OLT (ports en <b>losange magenta</b>). Il ne compte pas dans le bilan optique.</li>
+    <li>Sélectionnez l'<b>OLT NRO</b> et ouvrez l'onglet <span class="btnlike">Configuration</span> de l'inspecteur. Dans « Autorisation des ONT », comparez la liste déclarée et les <b>ONT détectées</b>.</li>
+    <li>Sélectionnez la <b>Box Dupont</b> : l'encadré « État de la Box » indique la session WAN (adresse 100.64.0.10 en PPPoE) et l'état de chaque appareil.</li>
+  </ol>
+  <figure class="shot">
+    <img src="docs/captures/services/mise-en-service-ftth.jpg" alt="Réseau de l'exemple Services : routeur de collecte, OLT, ODF, SRO, PBO, puis maison avec PTO, ONT, Box, PC, décodeur et téléphone en service">
+    <figcaption>L'exemple « FTTH triple play configuré » : les trois appareils sont en service (✓).</figcaption>
+  </figure>
+  <div class="foot"><span>Tutoriel 11 — Services (1/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet">
+  <h2>Tutoriel 11 — Équipements actifs et services (suite)</h2>
+  <div class="grid2">
+    <figure class="shot" style="margin-top:0">
+      <img src="docs/captures/tutoriels/config-olt.jpg" alt="Onglet Configuration de l'OLT : autorisation des ONT en liste blanche, ONT ALCL1A2B3C4D déclarée avec le profil Triple play, ONT détectée sur PON 1" style="max-height:72mm">
+      <figcaption>OLT : l'ONT détectée est « Déclarée ». Sinon, un bouton « Autoriser » apparaît.</figcaption>
+    </figure>
+    <figure class="shot" style="margin-top:0">
+      <img src="docs/captures/tutoriels/config-box.jpg" alt="Onglet Configuration de la Box : session WAN connectée, appareils en service, mode PPPoE avec identifiant et mot de passe" style="max-height:72mm">
+      <figcaption>Box : état de la session WAN et formulaire PPPoE.</figcaption>
+    </figure>
+  </div>
+
+  <h3>Le diagnostic pas à pas</h3>
+  <p>Sélectionnez un <b>appareil</b> (PC, décodeur, téléphone) : l'onglet « Configuration » affiche son service, son adresse IP, son débit maximal et un <b>diagnostic</b> qui s'arrête à la <b>première étape en défaut</b>.</p>
+  <ol>
+    <li>Liaison optique de l'ONT (puissance reçue, statut) ;</li>
+    <li>autorisation de l'ONT sur l'OLT (ou port activé sur le switch AON) ;</li>
+    <li>service présent dans le profil de l'abonné ;</li>
+    <li>routeur de collecte (cœur de réseau, service activé) ;</li>
+    <li>VLAN identiques de bout en bout (OLT, collecte, Box) ;</li>
+    <li>session WAN de la Box (même mode que la collecte, identifiants PPPoE) ;</li>
+    <li>adresse IP de l'appareil (bail DHCP de la Box ou adresse statique valide).</li>
+  </ol>
+  <div class="box tip"><p><b>Débit maximal :</b> en GPON, un port PON offre 2 488 Mbit/s descendants <b>partagés</b> entre les ONT actives ; l'abonné obtient le plus petit des deux : son profil ou sa part. En Active Ethernet, le port est <b>dédié</b> (1 Gbit/s).</p></div>
+
+  <h3>Essayer : provoquer une erreur puis la corriger</h3>
+  <ol class="steps">
+    <li>Sélectionnez la Box et remplacez le <b>VLAN TV</b> 200 par 210.</li>
+    <li>Sélectionnez le décodeur TV : l'étape <b>« VLAN TV »</b> est en défaut (OLT 200 · collecte 200 · Box 210).</li>
+    <li>Remettez 200 sur la Box (ou <kbd>Ctrl</kbd>+<kbd>Z</kbd>) : le décodeur repasse <b>En service</b>.</li>
+  </ol>
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>citer les équipements de la chaîne de service et leur rôle ;</li><li>trouver l'étape en défaut d'un appareil ;</li><li>corriger une configuration et vérifier le service.</li></ul></div>
+  <div class="foot"><span>Tutoriel 11 — Services (2/2)</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ T12 ============================ -->
+<section class="sheet" id="tutoriel-12">
+  <h2>Tutoriel 12 — Les pannes de configuration</h2>
+  <div class="meta"><span><b>Durée :</b> 20 min</span><span><b>Objectif :</b> retrouver une erreur de configuration à partir de ses symptômes</span></div>
+
+  <p>Les pannes de configuration vous sont données par l'enseignant dans un <b>sujet</b> (tutoriel 10, TP 12). La panne est <b>cachée</b> : un réglage a été modifié et coupe un service.</p>
+  
+
+  <div class="side">
+  <div>
+  <h3 style="margin-top:0">Ce que voit l'élève : des symptômes</h3>
+  <p>Une panne de configuration cachée n'est <b>jamais nommée</b>. Le diagnostic indique l'<b>étape</b> en défaut, mais seulement le <b>symptôme</b>, comme un vrai équipement :</p>
+  <table>
+    <tr><th>Symptôme affiché</th><th>Où chercher</th></tr>
+    <tr><td>ONT détectée mais refusée par l'OLT</td><td>Liste des ONT de l'OLT, numéro de série de l'ONT</td></tr>
+    <tr><td>Aucun trafic sur le port SFP</td><td>Ports abonnés du switch AON</td></tr>
+    <tr><td>Service non fourni à cet abonné</td><td>Profil (OLT ou switch AON)</td></tr>
+    <tr><td>Aucune réponse du réseau opérateur</td><td>Routeur de collecte, VLAN des 3 équipements</td></tr>
+    <tr><td>Session PPPoE refusée / aucune adresse WAN</td><td>Box (WAN) et routeur de collecte (mode, comptes)</td></tr>
+    <tr><td>Adresse 169.254.x.x, pas d'adresse, passerelle injoignable</td><td>Box (LAN, DHCP) et appareil (adressage)</td></tr>
+  </table>
+  </div>
+  <figure class="shot">
+    <img src="docs/captures/tutoriels/panne-config-symptome.jpg" alt="Diagnostic du PC avec une panne cachée : étape Session WAN de la Box en défaut, symptôme Session PPPoE refusée par le réseau opérateur">
+    <figcaption>Panne cachée : seul le symptôme est affiché.</figcaption>
+  </figure>
+  </div>
+
+  <h3>Corriger</h3>
+  <p>Comparez les réglages des équipements concernés et rétablissez la bonne valeur. Vérifiez que le service revient dans le diagnostic. Si l'enseignant l'a prévu dans le sujet, le message <b>« Panne de configuration corrigée… Bravo ! »</b> s'affiche.</p>
+  <div class="box"><p><b>Je sais faire :</b></p>
+    <ul class="check"><li>retrouver l'étape en défaut dans le diagnostic d'un appareil ;</li><li>relier un symptôme à l'équipement à vérifier ;</li><li>corriger la configuration et vérifier que le service revient.</li></ul></div>
+  <div class="foot"><span>Tutoriel 12 — Pannes de configuration</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<section class="sheet" id="fiche-memo">
+  <h2>Fiche mémo — valeurs de référence</h2>
+  <div class="grid2">
+    <table>
+      <tr><th colspan="2">Fibre monomode (dB/km)</th></tr>
+      <tr><td>1310 nm</td><td class="num">0,35</td></tr>
+      <tr><td>1490 nm (GPON descendant)</td><td class="num">0,25</td></tr>
+      <tr><td>1550 nm</td><td class="num">0,22</td></tr>
+      <tr><th colspan="2">Raccordements (dB)</th></tr>
+      <tr><td>Épissure fusion</td><td class="num">0,05</td></tr>
+      <tr><td>Épissure mécanique</td><td class="num">0,2</td></tr>
+      <tr><td>Connecteur / traversée ODF, PMI, SRO, PTO</td><td class="num">0,5</td></tr>
+      <tr><td>APC accouplé à UPC</td><td class="num">+3</td></tr>
+    </table>
+    <table>
+      <tr><th colspan="2">Coupleurs (dB)</th></tr>
+      <tr><td>1:2 · 1:4</td><td class="num">3,5 · 7,2</td></tr>
+      <tr><td>1:8 · 1:16</td><td class="num">10,5 · 13,8</td></tr>
+      <tr><td>1:32 · 1:64</td><td class="num">17,2 · 21,0</td></tr>
+      <tr><th colspan="2">Équipements actifs</th></tr>
+      <tr><td>OLT GPON B+ : émission</td><td class="num">+4 dBm</td></tr>
+      <tr><td>ONT B+ : sensibilité</td><td class="num">−27 dBm</td></tr>
+      <tr><td>ONT B+ : saturation</td><td class="num">−8 dBm</td></tr>
+      <tr><td>Marge recommandée</td><td class="num">≥ 3 dB</td></tr>
+      <tr><td>Câble Ethernet Cat6</td><td class="num">≤ 100 m</td></tr>
+    </table>
+  </div>
+  <div class="grid2">
+    <table>
+      <tr><th colspan="2">Couche service — débits</th></tr>
+      <tr><td>GPON descendant / montant (partagé par port PON)</td><td class="num">2 488 / 1 244 Mbit/s</td></tr>
+      <tr><td>Internet 300</td><td class="num">300 / 300</td></tr>
+      <tr><td>Internet 1 Gbit/s · Duo (Internet + TV)</td><td class="num">1 000 / 500</td></tr>
+      <tr><td>Triple play (Internet + TV + VoIP)</td><td class="num">1 000 / 700</td></tr>
+      <tr><td>Port Active Ethernet (dédié)</td><td class="num">1 000 Mbit/s</td></tr>
+    </table>
+    <table>
+      <tr><th colspan="2">Couche service — réglages usuels</th></tr>
+      <tr><td>VLAN Internet · TV · VoIP</td><td class="num">100 · 200 · 300</td></tr>
+      <tr><td>Pool WAN du routeur de collecte</td><td class="num">100.64.0.0/24</td></tr>
+      <tr><td>Box : adresse LAN (passerelle)</td><td class="num">192.168.1.1/24</td></tr>
+      <tr><td>Box : plage DHCP</td><td class="num">.10 à .50</td></tr>
+      <tr><td>Pas de DHCP → adresse APIPA</td><td class="num">169.254.x.x</td></tr>
+    </table>
+  </div>
+  <p><b>Ordre du diagnostic :</b> optique → autorisation (OLT) ou port (AON) → profil → collecte → VLAN → session WAN (DHCP / PPPoE) → adresse IP de l'appareil.</p>
+  <div class="foot"><span>Fiche mémo</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+<!-- ============================ AUTO-ÉVALUATION ============================ -->
+<section class="sheet">
+  <h2>Grille d'auto-évaluation — Je maîtrise OptiSim FTTx Lab</h2>
+  <p>Nom : ............................................ Prénom : ............................................ Classe : ............ Date : ..................</p>
+  <p>Cochez votre niveau pour chaque compétence : <b>1</b> = je ne sais pas faire · <b>2</b> = avec aide · <b>3</b> = seul · <b>4</b> = je peux l'expliquer à un camarade.</p>
+  <table>
+    <tr><th>Compétence</th><th class="num">1</th><th class="num">2</th><th class="num">3</th><th class="num">4</th></tr>
+    <tr><td colspan="5" style="background:var(--soft)"><b>Interface et conception</b></td></tr>
+    <tr><td>Je repère les 4 zones et j'utilise les 3 modes</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je place, règle, duplique et supprime un équipement</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je câble dans le bon sens avec le bon type de câble</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je choisis le bon raccordement (fusion, mécanique, connecteur, aucun)</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je réalise un brassage port à port sur un ODF</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je raccorde une villa (gaine intérieure) et un immeuble (PMI, colonne, PBO)</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td colspan="5" style="background:var(--soft)"><b>Bilan optique</b></td></tr>
+    <tr><td>Je calcule un bilan à la main et je le compare à l'onglet Bilan</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je calcule une marge et j'interprète un statut (OK, faible, LOS, saturation)</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td colspan="5" style="background:var(--soft)"><b>Mesures</b></td></tr>
+    <tr><td>Je mesure au photomètre de proche en proche</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je réalise un tir OTDR et j'identifie les événements</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je calcule la distance réelle d'un défaut (bobine amorce)</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>J'utilise le VFL et je repère une fuite</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td colspan="5" style="background:var(--soft)"><b>Dépannage</b></td></tr>
+    <tr><td>J'associe une panne à sa signature de mesure</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>J'applique la méthode de dépannage en 5 étapes</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je répare et je vérifie par une mesure</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td colspan="5" style="background:var(--soft)"><b>Équipements actifs et services</b></td></tr>
+    <tr><td>Je décris la chaîne collecte → OLT / switch AON → ONT → Box → appareils</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>J'autorise une ONT, je configure la Box (WAN, VLAN, LAN) et un appareil</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td>Je trouve et je corrige une panne de configuration à partir de ses symptômes</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+    <tr><td colspan="5" style="background:var(--soft)"><b>Organisation</b></td></tr>
+    <tr><td>Je sauvegarde, je nomme et je rends mon fichier .json</td><td>☐</td><td>☐</td><td>☐</td><td>☐</td></tr>
+  </table>
+  <h3>Ce que je dois retravailler :</h3>
+  <div class="answer"></div><div class="answer"></div><div class="answer"></div>
+  <p style="margin-top:8mm"><b>Suite du parcours :</b> enchaînez avec les TP intégrés 1 à 5, puis 10 et 11 (bouton <span class="btnlike">Exemples &amp; TP</span>), puis avec le livret de <b>TP complémentaires</b> (fichier <code>tp-complementaires-imprimables.html</code>).</p>
+  <div class="foot"><span>Auto-évaluation</span><span>© Hassami COMPAORE</span></div>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!doctype html>
+<!-- OptiSim FTTx Lab — Auteur : Hassami COMPAORE -->
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OptiSim FTTx Lab</title>
+  <meta name="author" content="Hassami COMPAORE">
+  <meta name="description" content="Simulateur pédagogique de réseaux fibre optique FTTH / FTTB / FTTO — Bac Pro Télécommunications">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1220'/%3E%3Cpath d='M4 22 C12 22 12 10 20 10 S28 16 28 16' stroke='%2322c55e' stroke-width='3' fill='none'/%3E%3Ccircle cx='4' cy='22' r='3' fill='%23eab308'/%3E%3C/svg%3E">
+</head>
+<body class="mode-design">
+
+  <!-- ================= 1. BARRE SUPÉRIEURE ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--brand-bg)"/><path d="M4 22 C12 22 12 10 20 10 S28 16 28 16" stroke="#22c55e" stroke-width="3" fill="none"/><circle cx="4" cy="22" r="3" fill="#eab308"/><circle cx="28" cy="16" r="2.5" fill="#22c55e"/></svg>
+      <div><b>OptiSim FTTx Lab</b><small id="edition">Laboratoire virtuel fibre optique</small></div>
+    </div>
+
+    <div class="tb-group">
+      <button class="btn" id="btnNew" title="Nouvelle topologie">Nouveau</button>
+      <button class="btn" id="btnOpen" title="Ouvrir un fichier JSON">Ouvrir</button>
+      <button class="btn" id="btnSave" title="Sauvegarder en JSON (Ctrl+S)">Sauvegarder</button>
+      <button class="btn icon" id="btnUndo" title="Annuler (Ctrl+Z)" aria-label="Annuler">↶</button>
+      <button class="btn icon" id="btnRedo" title="Rétablir (Ctrl+Y)" aria-label="Rétablir">↷</button>
+      <input type="file" id="fileInput" accept=".json,application/json" hidden>
+    </div>
+
+    <div class="segmented" id="modeSwitch" role="tablist" aria-label="Mode">
+      <button data-mode="design" class="active">Conception</button>
+      <button data-mode="test">Mesure / Test</button>
+      <button data-mode="fault">Simulation de pannes</button>
+    </div>
+
+    
+
+    <div class="tb-group exam-only" id="examGroup" hidden>
+      <span class="exam-tag" id="examTag">Examen</span>
+      <button class="btn" id="btnExamInfo" title="Relire les consignes de l'examen">Consignes</button>
+      <button class="btn primary" id="btnSubmit" title="Enregistrer la copie à remettre à l'enseignant">Rendre ma copie</button>
+    </div>
+
+    <div class="tb-spacer"></div>
+    <div class="tb-group">
+      <button class="btn primary" id="btnLabs">Exemples &amp; TP</button>
+      
+      <button class="btn" id="btnDocs">Documentation</button>
+      <button class="btn icon" id="btnTheme" title="Thème clair / sombre" aria-label="Changer de thème">◐</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ================= 2. BOÎTE À OUTILS ================= -->
+    <aside class="panel palette" id="palette" aria-label="Boîte à outils">
+      <div class="panel-title">Boîte à outils</div>
+      <input type="search" id="paletteSearch" class="search" placeholder="Rechercher un équipement…">
+      <div id="paletteBody"></div>
+    </aside>
+
+    <!-- ================= 3. CANEVAS ================= -->
+    <section class="stage" id="stage">
+      <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="gridSmall" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" class="grid-line"/></pattern>
+          <pattern id="gridBig" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#gridSmall)"/><path d="M100 0H0V100" fill="none" class="grid-line-strong"/></pattern>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="redglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+        </defs>
+        <g id="viewport">
+          <rect x="-20000" y="-20000" width="40000" height="40000" fill="url(#gridBig)" class="grid-bg"/>
+          <g id="layerBuildings"></g>
+          <g id="layerLinks"></g>
+          <g id="layerDevices"></g>
+          <g id="layerOverlay"></g>
+        </g>
+      </svg>
+
+      <div class="empty-hint" id="emptyHint">
+        <h2>Bienvenue dans OptiSim FTTx Lab</h2>
+        <p>Glissez des équipements depuis la boîte à outils, ou ouvrez <b>Exemples &amp; TP</b> pour charger un travail pratique prêt à l'emploi.</p>
+        <button class="btn primary" id="btnEmptyLabs">Ouvrir la bibliothèque de TP</button>
+      </div>
+
+      <div class="float-card tp-panel" id="tpPanel" hidden></div>
+      <div class="float-card instrument" id="instrument" hidden></div>
+
+      <div class="zoom-ctl">
+        <button class="btn icon" id="zoomIn" title="Zoom avant" aria-label="Zoom avant">+</button>
+        <button class="btn icon" id="zoomOut" title="Zoom arrière" aria-label="Zoom arrière">−</button>
+        <button class="btn icon" id="zoomFit" title="Recadrer (F)" aria-label="Recadrer">⤢</button>
+      </div>
+      <div class="legend">
+        <span><i class="dot ok"></i>OK</span><span><i class="dot weak"></i>Faible</span><span><i class="dot los"></i>LOS / Sat.</span><span><i class="dot nc"></i>Non raccordé</span>
+      </div>
+    </section>
+
+    <!-- ================= 4. INSPECTEUR & RÉSULTATS ================= -->
+    <aside class="panel inspector" id="inspector" aria-label="Inspecteur">
+      <div class="tabs" role="tablist">
+        <button data-tab="props" class="active">Propriétés</button>
+        <button data-tab="config">Configuration</button>
+        <button data-tab="bilan">Bilan optique</button>
+        <button data-tab="otdr">OTDR</button>
+      </div>
+      <div class="inspector-body" id="inspectorBody"></div>
+    </aside>
+  </main>
+
+  <footer class="statusbar">
+    <span id="sbMode" class="sb-mode">Conception</span>
+    <span id="sbHint" class="sb-hint"></span>
+    <span id="sbInfo" class="sb-info"></span>
+    
+    <span class="sb-author">© Hassami COMPAORE</span>
+  </footer>
+
+  <!-- Modale générique -->
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-head"><h3 id="modalTitle"></h3><button class="btn icon" id="modalClose" aria-label="Fermer">✕</button></div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot" id="modalFoot"></div>
+    </div>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="edition.js"></script>
+  <script src="physics.js"></script>
+  <script src="services.js"></script>
+  <script src="examen.js"></script>
+  <script src="labs.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
