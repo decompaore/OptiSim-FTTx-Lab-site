@@ -31,6 +31,18 @@
       const h = deviceSize(tmp).h;
       return this.dev(type, b.x + x, Math.round(lv.y0 + (lv.y1 - lv.y0 - h) / 2 - 6), props);
     }
+    /**
+     * Ajoute un local (logement, bureau, pièce…) dans un bâtiment.
+     * x, w : position et largeur relatives au bâtiment ; opts.floor pour un étage
+     * d'immeuble (toute la hauteur de l'étage), sinon opts.y / opts.h relatifs au bâtiment.
+     */
+    room(bld, name, kind, x, w, opts = {}) {
+      const b = this.get(bld);
+      let y, h;
+      if (b.type === 'bld_mdu') { const lv = mduLevels(b).find(l => l.floor === opts.floor); y = lv.y0 + 3; h = lv.y1 - lv.y0 - 6; }
+      else { y = b.y + (opts.y !== undefined ? opts.y : 36); h = opts.h !== undefined ? opts.h : b.h - 36 - 6; }
+      return this.dev('local', b.x + x, y, { name, kind }, { w, h });
+    }
     link(type, a, ap, b, bp, opts = {}) {
       const id = 'L' + (++this.n);
       this.links.push(Object.assign({ id, type, a: { dev: a, port: ap }, b: { dev: b, port: bp } }, JSON.parse(JSON.stringify(CABLES[type].defaults)), opts));
@@ -59,7 +71,8 @@
       t.link('cat6', swC, 1, pc, 0, { length: 12 });
       t.link('cat6', swC, 2, ph, 0, { length: 8 });
     }
-    void bat;
+    t.room(bat, 'Local technique', 'Local technique', 20, 410);
+    t.room(bat, 'Secrétariat', 'Bureau', 450, 175);
     return t.json();
   }
 
@@ -69,12 +82,12 @@
     const odf = t.dev('odf', 220, 260, { name: 'ODF NRO' });
     const sro = t.dev('sro', 470, 250, { name: 'SRO Quartier Nord', splitter: '1:32', outPorts: 32 });
     const pbo = t.dev('pbo_ext', 730, 290, { name: 'PBO poteau P12', capacity: 8, mount: 'Aérien (poteau)' });
-    t.dev('bld_simple', 960, 170, { name: 'Villa Les Tilleuls', kind: 'Villa / Pavillon', gaineLength: 15 }, { w: 660, h: 320 });
+    const villa = t.dev('bld_simple', 960, 170, { name: 'Villa Les Tilleuls', kind: 'Villa / Pavillon', gaineLength: 15 }, { w: 660, h: 320 });
     const pto = t.dev('pto', 1000, 300, { name: 'PTO salon' });
     const ont = t.dev('ont', 1170, 290, { name: 'ONT Villa' });
     const rtr = t.dev('router', 1340, 230, { name: 'Routeur Wi-Fi' });
-    const pc = t.dev('pc', 1490, 210, { name: 'PC bureau' });
-    const tv = t.dev('tv', 1490, 340, { name: 'Décodeur TV' });
+    const pc = t.dev('pc', 1490, 236, { name: 'PC bureau' });
+    const tv = t.dev('tv', 1490, 380, { name: 'Décodeur TV' });
     t.link('patch', olt, 0, odf, 0, { length: 2 });
     t.link('smf', odf, 0, sro, 0, { length: 3000, fibers: 48 });
     t.link('smf', sro, 0, pbo, 0, { length: 800, fibers: 12 });
@@ -85,6 +98,9 @@
     t.link('cat6', ont, 0, rtr, 0, { length: 2 });
     t.link('cat6', rtr, 0, pc, 0, { length: 6 });
     t.link('cat6', rtr, 1, tv, 0, { length: 3 });
+    t.room(villa, 'Séjour', 'Pièce', 20, 490);
+    t.room(villa, 'Bureau', 'Pièce', 515, 140, { y: 36, h: 140 });
+    t.room(villa, 'Salon', 'Pièce', 515, 140, { y: 180, h: 134 });
     return t.json();
   }
 
@@ -114,6 +130,13 @@
       links.h3 = t.link('lszh', pbo[3], 1, pto[3], 0, { length: 15 });
       t.link('patch', pto[3], 0, ont[3], 0, { length: 2 });
     }
+    for (const f of [1, 2, 3]) {
+      t.room(b, 'Palier', 'Parties communes', 100, 240, { floor: f });
+      t.room(b, `Appt ${f}01`, 'Logement', 360, 390, { floor: f });
+    }
+    t.room(b, 'Hall d\'entrée', 'Parties communes', 100, 650, { floor: 0 });
+    t.room(b, 'Local technique', 'Local technique', 100, 250, { floor: -1 });
+    t.room(b, 'Caves', 'Parties communes', 360, 390, { floor: -1 });
     return { t, links, pto, ont, pbo };
   }
 
@@ -148,6 +171,12 @@
       t.link('cat6', sw2, 1, pc2, 0, { length: 18 });
       t.link('cat6', sw2, 2, tel2, 0, { length: 22 });
     }
+    t.room(b, 'Local technique', 'Local technique', 80, 250, { floor: 0 });
+    t.room(b, 'Accueil', 'Bureau', 350, 440, { floor: 0 });
+    t.room(b, 'Local télécom', 'Local technique', 80, 380, { floor: 1 });
+    t.room(b, 'Comptabilité', 'Bureau', 480, 310, { floor: 1 });
+    t.room(b, 'Local télécom', 'Local technique', 80, 380, { floor: 2 });
+    t.room(b, 'Direction', 'Bureau', 480, 310, { floor: 2 });
     return t.json();
   }
 
@@ -174,6 +203,9 @@
     t.link('smf', sro, 0, odfI, 0, { length: 350 });
     t.link('patch', odfI, 0, onu, 0, { length: 2 });
     [25, 32, 40].forEach((len, i) => t.link('cat6', onu, i, pcs[i], 0, { length: len }));
+    t.room(b, 'Local technique', 'Local technique', 80, 360, { floor: -1 });
+    t.room(b, 'Hall', 'Parties communes', 80, 550, { floor: 0 });
+    [1, 2, 3].forEach(f => t.room(b, `Plateau étage ${f}`, 'Bureau', 440, 190, { floor: f }));
     return t.json();
   }
 
@@ -181,7 +213,6 @@
     const t = new Topo();
     const b = t.dev('bld_simple', 40, 120, { name: 'Lycée — Bâtiment A', kind: 'Bureau RDC', gaineLength: 0 }, { w: 420, h: 300 });
     const b2 = t.dev('bld_simple', 820, 120, { name: 'Lycée — Bâtiment B', kind: 'Bureau RDC', gaineLength: 0 }, { w: 420, h: 300 });
-    void b; void b2;
     const sw = t.dev('switch', 80, 220, { name: 'Switch cœur A', role: 'coeur', wavelength: 850, fiberMode: 'Multimode (MM)', txPower: -5, sfpPorts: 1, ethPorts: 2 });
     const odfA = t.dev('odf_int', 270, 200, { name: 'ODF A', connector: 'LC/UPC' });
     const odfB = t.dev('odf_int', 860, 200, { name: 'ODF B', connector: 'LC/UPC' });
@@ -191,6 +222,9 @@
     t.link('om3', odfA, 0, odfB, 0, { length: 250, jointA: 'fusion', jointB: 'fusion' });
     t.link('patch', odfB, 0, swB, 0, { length: 2, connector: 'LC/UPC' });
     t.link('cat6', swB, 1, pc, 0, { length: 30 });
+    t.room(b, 'Salle serveurs', 'Local technique', 20, 380);
+    t.room(b2, 'Local technique', 'Local technique', 20, 170);
+    t.room(b2, 'Salle informatique', 'Pièce', 220, 180);
     return t.json();
   }
 
@@ -208,15 +242,15 @@
     const odf = t.dev('odf', 430, 200, { name: 'ODF NRO' });
     const sro = t.dev('sro', 640, 230, { name: 'SRO Quartier Est', splitter: '1:32', outPorts: 32 });
     const pbo = t.dev('pbo_ext', 850, 250, { name: 'PBO poteau P7', capacity: 8 });
-    t.dev('bld_simple', 1050, 130, { name: 'Maison Dupont', kind: 'Villa / Pavillon', gaineLength: 15 }, { w: 740, h: 380 });
+    const maison = t.dev('bld_simple', 1050, 130, { name: 'Maison Dupont', kind: 'Villa / Pavillon', gaineLength: 15 }, { w: 740, h: 380 });
     const pto = t.dev('pto', 1080, 260, { name: 'PTO séjour' });
     const ont = t.dev('ont', 1250, 250, { name: 'ONT Dupont', sn: SN_TP10 });
     const box = t.dev('router', 1430, 250, Object.assign({ name: 'Box Dupont' }, full
       ? { wanMode: 'pppoe', pppLogin: 'dupont@optisim', pppPassword: 'Fibre-2026' }
       : { wanMode: 'dhcp', pppLogin: '', pppPassword: '', vlanTv: 210 }));
-    const pc = t.dev('pc', 1630, 180, { name: 'PC salon' });
-    const tv = t.dev('tv', 1630, 300, { name: 'Décodeur TV' });
-    const ph = t.dev('phone', 1630, 410, { name: 'Téléphone' });
+    const pc = t.dev('pc', 1630, 192, { name: 'PC salon' });
+    const tv = t.dev('tv', 1630, 306, { name: 'Décodeur TV' });
+    const ph = t.dev('phone', 1630, 420, { name: 'Téléphone' });
     t.link('uplink', col, 0, olt, 0, { length: 15 });
     t.link('patch', olt, 0, odf, 0, { length: 2 });
     t.link('smf', odf, 0, sro, 0, { length: 3000, fibers: 48 });
@@ -227,6 +261,9 @@
     t.link('cat6', box, 0, pc, 0, { length: 6 });
     t.link('cat6', box, 1, tv, 0, { length: 4 });
     t.link('cat6', box, 2, ph, 0, { length: 8 });
+    t.room(maison, 'Séjour', 'Pièce', 15, 500);
+    t.room(maison, 'Salon', 'Pièce', 560, 165, { y: 36, h: 224 });
+    t.room(maison, 'Entrée', 'Pièce', 560, 165, { y: 264, h: 110 });
     return t.json();
   }
 
@@ -237,7 +274,7 @@
     const sw = t.dev('switch_aon', 230, 210, { name: 'Switch AON NRO',
       ports: full ? [{ enabled: true, profile: 'internet-1g' }, { enabled: true, profile: 'duo' }, { enabled: true, profile: 'trio' }] : [{ enabled: true, profile: 'internet-1g' }, { enabled: true, profile: 'duo' }] });
     const odf = t.dev('odf', 440, 210, { name: 'ODF NRO' });
-    t.dev('bld_simple', 720, 120, { name: 'Entreprise Lumitech', kind: 'Bureau RDC', gaineLength: 10 }, { w: 760, h: 400 });
+    const ent = t.dev('bld_simple', 720, 120, { name: 'Entreprise Lumitech', kind: 'Bureau RDC', gaineLength: 10 }, { w: 760, h: 400 });
     const pto = t.dev('pto', 750, 260, { name: 'PTO local technique' });
     const ont = t.dev('ont', 920, 250, { name: 'CPE fibre (ONT)', sensitivity: -22, overload: -3 });
     const box = t.dev('router', 1100, 250, { name: 'Routeur Lumitech', lanIp: '192.168.10.1', lanPrefix: 24, dhcp: false, dhcpStart: '192.168.10.100', dhcpEnd: '192.168.10.150', ssid: 'Lumitech' });
@@ -250,6 +287,8 @@
     t.link('cat6', ont, 0, box, 0, { length: 3 });
     t.link('cat6', box, 0, pc, 0, { length: 15 });
     t.link('cat6', box, 1, ph, 0, { length: 12 });
+    t.room(ent, 'Local technique', 'Local technique', 15, 500);
+    t.room(ent, 'Accueil', 'Bureau', 560, 185);
     return t.json();
   }
 
@@ -461,7 +500,19 @@
 <ul><li>Réglez le nombre d'étages (R+1 à R+12), la présence d'un sous-sol et la <b>hauteur d'étage</b> (3 m par défaut).</li>
 <li>Le bâtiment est découpé en bandes horizontales (Sous-sol, RDC, Étage 1…). La bande verticale en pointillés représente la <b>gaine technique</b> (colonne montante).</li>
 <li>Déposez les équipements dans l'étage voulu : l'inspecteur affiche l'étage détecté.</li>
-<li>Redimensionnez un bâtiment avec la poignée en bas à droite. Déplacer un bâtiment déplace tout son contenu.</li></ul>` },
+<li>Redimensionnez un bâtiment avec la poignée en bas à droite. Déplacer un bâtiment déplace tout son contenu.</li></ul>
+<h4>Compartimenter : logements, bureaux, pièces</h4>
+<p>L'élément <b>« Local »</b> (boîte à outils, rubrique Bâtiments) découpe un bâtiment comme sur un vrai plan.</p>
+<ul><li>Glissez un local <b>dans</b> le bâtiment ou dans l'étage voulu, puis redimensionnez-le avec sa poignée en bas à droite.</li>
+<li>Dans l'inspecteur, donnez-lui un <b>nom</b> (« Appt 301 », « Comptabilité », « Séjour ») et un <b>type</b>. Chaque type a sa couleur :
+<table class="doc-table"><tr><th>Type</th><th>Exemples</th></tr>
+<tr><td>Logement</td><td>appartement d'un immeuble</td></tr><tr><td>Bureau</td><td>service d'une entreprise, accueil</td></tr>
+<tr><td>Commerce</td><td>boutique en pied d'immeuble</td></tr><tr><td>Pièce</td><td>séjour, chambre ou bureau d'une maison</td></tr>
+<tr><td>Parties communes</td><td>palier, hall d'entrée, caves : la colonne montante et les PBO y passent</td></tr>
+<tr><td>Local technique</td><td>PMI, baie, ODF d'étage, local télécom</td></tr></table></li>
+<li>Les équipements posés dans un local lui sont rattachés. L'inspecteur et le bilan affichent l'emplacement complet, par exemple « Résidence — Étage 3 — Appt 301 ».</li>
+<li>Déplacer un local déplace ses équipements. Supprimer un local ne supprime pas son contenu.</li></ul>
+<div class="tip">Les locaux illustrent le plan : ils ne changent <b>pas</b> le bilan optique. Ce sont la gaine intérieure (bâtiment simple) et l'écart d'étages (colonne montante) qui comptent dans le calcul. Les TP intégrés sont déjà compartimentés.</div>` },
 
     { id: 'odf', group: 'Guide de l\'utilisateur', title: 'Brassage sur ODF', html: `
 <p>L'ODF possède deux faces :</p>
@@ -692,7 +743,7 @@
 <div class="print-cards">
 <a class="print-card" href="tutoriels-imprimables.html" target="_blank" rel="noopener">
 <img src="docs/captures/livrets/apercu-tutoriels.jpg" alt="Aperçu d'une page des tutoriels : tutoriel 12, les pannes de configuration" loading="lazy">
-<b>Tutoriels</b><small>22 pages · ${ELEVE ? 16 : 18} captures d'écran</small>
+<b>Tutoriels</b><small>22 pages · ${ELEVE ? 17 : 19} captures d'écran</small>
 <span>12 tutoriels pas à pas : interface, équipements, câblage, bâtiments, bilan optique, photomètre, VFL, OTDR, pannes, TP et fichiers, équipements actifs et services, pannes de configuration. Fiche mémo et grille d'auto-évaluation.</span></a>
 <a class="print-card" href="tp-complementaires-imprimables.html" target="_blank" rel="noopener">
 <img src="docs/captures/livrets/apercu-tp.jpg" alt="Aperçu d'une page du TP 12 : dépannage des services sur sujet" loading="lazy">

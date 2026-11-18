@@ -59,6 +59,14 @@
   const devById = id => S.topo.devices.find(d => d.id === id);
   const linkById = id => S.topo.links.find(l => l.id === id);
   const isContainer = d => d && CATALOG[d.type] && CATALOG[d.type].container;
+  const isRoom = P.isRoom; // local : conteneur visuel dans un bâtiment
+  /** Emplacement d'un équipement : bâtiment, étage, local. */
+  function locationText(d) {
+    if (!d || !d.parent) return '';
+    const B = devById(d.parent), R = d.room ? devById(d.room) : null;
+    if (!B) return '';
+    return B.props.name + (B.type === 'bld_mdu' ? ' — ' + P.floorLabel(d.floor) : '') + (R ? ' — ' + R.props.name : '');
+  }
 
   /* ------------------------------------------------------------------ */
   /*  Topologie : normalisation, mutations, annulation                    */
@@ -71,8 +79,8 @@
       const nd = { id: d.id || uid(d.type), type: d.type, x: +d.x || 0, y: +d.y || 0, props: Object.assign(clone(def.defaults), clone(d.props || {})) };
       if (nd.type === 'ont' && !nd.props.sn) nd.props.sn = P.autoSerial(nd.id);
       if (def.container) {
-        nd.w = +d.w || (d.type === 'bld_mdu' ? 620 : 360);
-        if (d.type === 'bld_mdu') nd.floorPx = +d.floorPx || 170; else nd.h = +d.h || 230;
+        nd.w = +d.w || (d.type === 'bld_mdu' ? 620 : d.type === 'local' ? 220 : 360);
+        if (d.type === 'bld_mdu') nd.floorPx = +d.floorPx || 170; else nd.h = +d.h || (d.type === 'local' ? 120 : 230);
       }
       if (d.fault && d.fault.type) nd.fault = Object.assign({}, d.fault);
       if (d.cfgFault && SV.CFG_FAULTS[d.cfgFault.type]) nd.cfgFault = clone(d.cfgFault);
@@ -190,9 +198,10 @@
 
   function render() {
     applyView();
-    const blds = S.topo.devices.filter(isContainer);
+    const blds = S.topo.devices.filter(d => isContainer(d) && !isRoom(d)).concat(S.topo.devices.filter(isRoom));
     const devs = S.topo.devices.filter(d => !isContainer(d));
-    layerB.innerHTML = blds.map(bldSVG).join('');
+    roomObstacles = blds.some(isRoom) ? labelObstacles() : [];
+    layerB.innerHTML = blds.map(b => isRoom(b) ? roomSVG(b) : bldSVG(b)).join('');
     layerL.innerHTML = S.topo.links.map(linkSVG).join('');
     layerD.innerHTML = devs.map(devSVG).join('');
     renderDecorations();
@@ -225,6 +234,62 @@
       s += `<rect class="pa" x="${r.x - 7}" y="${my - 11}" width="14" height="22" rx="3"/><text class="pa-label" x="${r.x}" y="${my + 4}" text-anchor="middle">PA</text>`;
     }
     s += `<path class="handle" data-handle="${b.id}" d="M${r.x + r.w - 4} ${r.y + r.h - 16}V${r.y + r.h - 4}H${r.x + r.w - 16}Z"/>`;
+    return s + '</g>';
+  }
+
+  /* Étiquettes des locaux : placées dans le premier coin libre (ni équipement, ni câble). */
+  let roomObstacles = [];
+  function pathBoxes(d) {
+    const tok = d.match(/[MHVC]|-?[\d.]+/g) || [], out = [];
+    const seg = (x0, y0, x1, y1) => out.push({ x0: Math.min(x0, x1) - 4, y0: Math.min(y0, y1) - 4, x1: Math.max(x0, x1) + 4, y1: Math.max(y0, y1) + 4 });
+    let cx = 0, cy = 0, i = 0, cmd = '';
+    while (i < tok.length) {
+      if (/[MHVC]/.test(tok[i])) cmd = tok[i++];
+      if (cmd === 'M') { cx = +tok[i++]; cy = +tok[i++]; }
+      else if (cmd === 'H') { const x = +tok[i++]; seg(cx, cy, x, cy); cx = x; }
+      else if (cmd === 'V') { const y = +tok[i++]; seg(cx, cy, cx, y); cy = y; }
+      else if (cmd === 'C') {
+        const p = [cx, cy].concat(tok.slice(i, i + 6).map(Number)); i += 6;
+        let px = cx, py = cy;
+        for (let k = 1; k <= 12; k++) {
+          const t = k / 12, u = 1 - t;
+          const x = u * u * u * p[0] + 3 * u * u * t * p[2] + 3 * u * t * t * p[4] + t * t * t * p[6];
+          const y = u * u * u * p[1] + 3 * u * u * t * p[3] + 3 * u * t * t * p[5] + t * t * t * p[7];
+          seg(px, py, x, y); px = x; py = y;
+        }
+        cx = p[6]; cy = p[7];
+      } else i++;
+    }
+    return out;
+  }
+  function labelObstacles() {
+    const obs = [];
+    S.topo.devices.filter(d => !isContainer(d)).forEach(d => { const s = deviceSize(d); obs.push({ x0: d.x - 4, y0: d.y - 4, x1: d.x + s.w + 4, y1: d.y + s.h + 18 }); });
+    S.topo.links.forEach(l => { const g = linkGeom(l); if (g) pathBoxes(g).forEach(b => obs.push(b)); });
+    return obs;
+  }
+  function roomLabelSpot(r, b) {
+    const same = b.props.kind === b.props.name;
+    const w = String(b.props.name).length * 6.4 + (same ? 0 : String(b.props.kind).length * 4.9 + 6) + 4;
+    const spots = [
+      { x: r.x + r.w - 8, y: r.y + 15, anchor: 'end' }, { x: r.x + 8, y: r.y + 15, anchor: 'start' },
+      { x: r.x + r.w - 8, y: r.y + r.h - 7, anchor: 'end' }, { x: r.x + 8, y: r.y + r.h - 7, anchor: 'start' }
+    ];
+    const box = s => ({ x0: s.anchor === 'end' ? s.x - w : s.x, x1: s.anchor === 'end' ? s.x : s.x + w, y0: s.y - 12, y1: s.y + 3 });
+    const free = s => { const q = box(s); return !roomObstacles.some(o => q.x0 < o.x1 && o.x0 < q.x1 && q.y0 < o.y1 && o.y0 < q.y1); };
+    return spots.find(free) || spots[0];
+  }
+
+  /** Local (logement, bureau, pièce…) dessiné dans un bâtiment. */
+  function roomSVG(b) {
+    const r = P.buildingRect(b);
+    const sel = S.sel && S.sel.kind === 'dev' && S.sel.id === b.id;
+    const col = P.ROOM_COLORS[b.props.kind] || '#64748b';
+    let s = `<g class="room ${sel ? 'selected' : ''}" data-dev="${b.id}">`;
+    s += `<rect class="room-body" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="6" style="fill:${col};stroke:${col}"/>`;
+    const sp = roomLabelSpot(r, b);
+    s += `<text class="room-title" x="${sp.x}" y="${sp.y}" text-anchor="${sp.anchor}"><tspan class="room-label" style="fill:${col}">${esc(b.props.name)}</tspan>${b.props.kind !== b.props.name ? `<tspan class="room-kind" dx="6">${esc(b.props.kind)}</tspan>` : ''}</text>`;
+    s += `<path class="handle" data-handle="${b.id}" d="M${r.x + r.w - 3} ${r.y + r.h - 13}V${r.y + r.h - 3}H${r.x + r.w - 13}Z"/>`;
     return s + '</g>';
   }
 
@@ -401,7 +466,7 @@
   const PALETTE = [
     { title: 'Actifs & Répartition (NRO)', items: ['collecte', 'olt', 'switch_aon', 'switch', 'odf'] },
     { title: 'Passifs extérieurs (ODN)', items: ['sro', 'pbo_ext', 'splitter', 'splice', 'coupler'] },
-    { title: 'Bâtiments & équipements intérieurs', items: ['bld_simple', 'bld_mdu', 'odf_int', 'pmi', 'pbo_int'] },
+    { title: 'Bâtiments & équipements intérieurs', items: ['bld_simple', 'bld_mdu', 'local', 'odf_int', 'pmi', 'pbo_int'] },
     { title: 'Câbles & jarretières', cables: ['smf', 'drop', 'lszh', 'riser', 'om3', 'om4', 'patch', 'cat6', 'uplink'] },
     { title: 'Abonnés', items: ['pto', 'ont', 'router', 'pc', 'phone', 'tv'] },
     { title: 'Outils de mesure', tools: [['pm', 'Photomètre', 'Puissance reçue (dBm) et statut'], ['otdr', 'Réflectomètre OTDR', 'Courbe de rétrodiffusion'], ['vfl', 'Stylo optique (VFL)', 'Lumière rouge visible']] }
@@ -419,7 +484,7 @@
       (sec.items || []).forEach(t => {
         const def = CATALOG[t];
         h += `<div class="pal-item" draggable="true" data-type="${t}" title="${esc(def.desc)}" data-search="${esc((def.label + ' ' + def.short).toLowerCase())}">
-          <svg viewBox="0 0 34 26" width="34" height="26">${def.container ? `<rect x="2" y="3" width="30" height="21" rx="3" fill="none" stroke="${def.color}" stroke-width="2"/><rect x="2" y="3" width="30" height="6" rx="2" fill="${def.color}"/>${t === 'bld_mdu' ? '<path d="M3 14H31M3 19H31" stroke="' + def.color + '" stroke-width="1"/>' : ''}` : `<rect x="2" y="4" width="30" height="19" rx="3" fill="var(--dev-body)" stroke="var(--dev-stroke)"/><rect x="2" y="4" width="30" height="6" rx="2" fill="${def.color}"/>`}<text x="17" y="${def.container ? 20 : 20}" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor">${def.short}</text></svg>
+          <svg viewBox="0 0 34 26" width="34" height="26">${def.room ? `<rect x="3" y="4" width="28" height="19" rx="3" fill="${def.color}" fill-opacity=".15" stroke="${def.color}" stroke-width="1.6" stroke-dasharray="3 2"/><path d="M17 4V23M3 13H17" stroke="${def.color}" stroke-width="1" stroke-dasharray="2 2"/>` : def.container ? `<rect x="2" y="3" width="30" height="21" rx="3" fill="none" stroke="${def.color}" stroke-width="2"/><rect x="2" y="3" width="30" height="6" rx="2" fill="${def.color}"/>${t === 'bld_mdu' ? '<path d="M3 14H31M3 19H31" stroke="' + def.color + '" stroke-width="1"/>' : ''}` : `<rect x="2" y="4" width="30" height="19" rx="3" fill="var(--dev-body)" stroke="var(--dev-stroke)"/><rect x="2" y="4" width="30" height="6" rx="2" fill="${def.color}"/>`}${def.room ? '' : `<text x="17" y="20" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor">${def.short}</text>`}</svg>
           <span>${esc(def.label)}</span></div>`;
       });
       (sec.cables || []).forEach(t => {
@@ -470,7 +535,7 @@
     const def = CATALOG[type];
     const d = { id: uid(type), type, x: 0, y: 0, props: clone(def.defaults) };
     if (type === 'ont') d.props.sn = P.autoSerial(d.id);
-    if (def.container) { d.w = type === 'bld_mdu' ? 620 : 380; if (type === 'bld_mdu') d.floorPx = 170; else d.h = 240; }
+    if (def.container) { d.w = type === 'bld_mdu' ? 620 : type === 'local' ? 220 : 380; if (type === 'bld_mdu') d.floorPx = 170; else d.h = type === 'local' ? 120 : 240; }
     // nom unique
     const same = S.topo.devices.filter(x => x.type === type).length;
     if (same) d.props.name = `${def.defaults.name} ${same + 1}`;
@@ -480,7 +545,8 @@
     mutate(() => S.topo.devices.push(d));
     select({ kind: 'dev', id: d.id });
     const dd = devById(d.id);
-    if (dd.parent) toast(`${def.short} placé dans « ${devById(dd.parent).props.name} »${dd.floor !== undefined && devById(dd.parent).type === 'bld_mdu' ? ' — ' + P.floorLabel(dd.floor) : ''}.`);
+    if (isRoom(dd)) { if (!dd.parent) toast('Un local se place dans un bâtiment (ou un étage d\'immeuble) : déplacez-le à l\'intérieur.', 'warn'); else toast(`Local placé dans « ${locationText(dd)} ». Redimensionnez-le avec la poignée en bas à droite.`); }
+    else if (dd.parent) toast(`${def.short} placé dans « ${devById(dd.parent).props.name} »${dd.floor !== undefined && devById(dd.parent).type === 'bld_mdu' ? ' — ' + P.floorLabel(dd.floor) : ''}.`);
   }
 
   /* ------------------------------------------------------------------ */
@@ -512,7 +578,7 @@
       select({ kind: 'dev', id: d.id });
       if (S.tool && S.tool.kind === 'cable') return;
       if (S.exam) return; // examen : équipements non déplaçables
-      const children = isContainer(d) ? S.topo.devices.filter(x => x.parent === d.id) : [];
+      const children = isRoom(d) ? S.topo.devices.filter(x => x.room === d.id) : isContainer(d) ? S.topo.devices.filter(x => x.parent === d.id) : [];
       drag = { kind: 'move', id: d.id, start: w, orig: [d, ...children].map(x => ({ d: x, x: x.x, y: x.y })), snap: snapshot(), moved: false };
       svg.setPointerCapture(e.pointerId); return;
     }
@@ -542,11 +608,11 @@
       const b = devById(drag.id);
       const dx = w.x - drag.start.x, dy = w.y - drag.start.y;
       drag.moved = true;
-      b.w = Math.max(240, Math.round((drag.w0 + dx) / 10) * 10);
+      b.w = Math.max(isRoom(b) ? 80 : 240, Math.round((drag.w0 + dx) / 10) * 10);
       if (b.type === 'bld_mdu') {
         const n = mduLevels(b).length;
         b.floorPx = Math.max(110, Math.round((drag.fp0 + dy / n) / 5) * 5);
-      } else b.h = Math.max(140, Math.round((drag.h0 + dy) / 10) * 10);
+      } else b.h = Math.max(isRoom(b) ? 50 : 140, Math.round((drag.h0 + dy) / 10) * 10);
       render();
     }
   });
@@ -787,23 +853,34 @@
     const def = CATALOG[d.type];
     let h = `<div class="insp-head"><span class="chip" style="background:${def.color}">${def.short}</span><div><b>${esc(d.props.name)}</b><small>${esc(def.label)}</small></div></div>`;
     h += `<p class="muted">${esc(def.desc)}</p>`;
+    if (isRoom(d)) {
+      h += `<div class="section"><h4>Paramètres du local</h4><div class="form-grid">${def.props.map(f => fieldHTML(f, d.props[f.key], 'dev')).join('')}</div></div>`;
+      const inside = S.topo.devices.filter(x => x.room === d.id);
+      const B = d.parent ? devById(d.parent) : null;
+      h += `<div class="section"><h4>Informations</h4><table class="kv"><tr><td>Bâtiment</td><td>${B ? esc(B.props.name) + (B.type === 'bld_mdu' ? ' — ' + P.floorLabel(d.floor) : '') : '<span class="st-weak">hors bâtiment</span>'}</td></tr>`;
+      h += `<tr><td>Équipements</td><td>${inside.length ? inside.map(x => `<a href="#" data-sel-dev="${x.id}">${esc(x.props.name)}</a>`).join(', ') : '<span class="muted">aucun</span>'}</td></tr><tr><td>Taille</td><td>${Math.round(d.w)} × ${Math.round(d.h)} px</td></tr></table>`;
+      h += '<p class="muted small">Le local illustre le plan du bâtiment : il n\'intervient pas dans le bilan. Déplacez-le (ses équipements suivent) ou redimensionnez-le avec la poignée en bas à droite.</p></div>';
+      return h + `<div class="row"><button class="btn danger" data-act="delete">Supprimer le local</button></div>`;
+    }
     if (def.container) {
       h += `<div class="section"><h4>Paramètres du bâtiment</h4><div class="form-grid">${def.props.map(f => fieldHTML(f, d.props[f.key], 'dev')).join('')}</div></div>`;
-      const kids = S.topo.devices.filter(x => x.parent === d.id);
+      const kids = S.topo.devices.filter(x => x.parent === d.id && !isRoom(x));
+      const rooms = S.topo.devices.filter(x => x.parent === d.id && isRoom(x));
       const r = buildingRect(d);
       h += `<div class="section"><h4>Informations</h4><table class="kv">`;
       if (d.type === 'bld_mdu') {
         const lv = mduLevels(d);
         h += `<tr><td>Niveaux</td><td>${lv.length} (${lv[lv.length - 1].label} → ${lv[0].label})</td></tr><tr><td>Hauteur totale</td><td>${fmt(lv.length * d.props.floorHeight, 1)} m</td></tr>`;
-        lv.forEach(l => { const n = kids.filter(k => k.floor === l.floor).length; if (n) h += `<tr><td>${l.label}</td><td>${n} équipement(s)</td></tr>`; });
+        lv.forEach(l => { const n = kids.filter(k => k.floor === l.floor).length, rl = rooms.filter(k => k.floor === l.floor); if (n || rl.length) h += `<tr><td>${l.label}</td><td>${n} équipement(s)${rl.length ? ' · ' + rl.map(x => esc(x.props.name)).join(', ') : ''}</td></tr>`; });
       } else h += `<tr><td>Gaine intérieure</td><td>${d.props.gaineLength} m (ajoutée aux câbles entrants)</td></tr>`;
+      if (d.type !== 'bld_mdu' && rooms.length) h += `<tr><td>Locaux</td><td>${rooms.map(x => `<a href="#" data-sel-dev="${x.id}">${esc(x.props.name)}</a>`).join(', ')}</td></tr>`;
       h += `<tr><td>Équipements</td><td>${kids.length}</td></tr><tr><td>Taille</td><td>${Math.round(r.w)} × ${Math.round(r.h)} px</td></tr></table></div>`;
       h += `<div class="row"><button class="btn danger" data-act="delete">Supprimer le bâtiment</button></div>`;
       return h;
     }
     const st = S.engine.deviceState(d.id);
     h += `<div class="section status-line">${statusPill(st)}${st.power !== undefined ? `<b class="big">${dbm(st.power)}</b>` : ''}</div>`;
-    if (d.parent) { const B = devById(d.parent); h += `<p class="loc">📍 ${esc(B.props.name)}${B.type === 'bld_mdu' ? ' — ' + P.floorLabel(d.floor) : ''}</p>`; }
+    if (d.parent) h += `<p class="loc">📍 ${esc(locationText(d))}</p>`;
     h += faultEditor(d, false);
     if (S.mode === 'fault' && def.config) h += `<p class="muted small">${TEACHER && !S.exam ? 'Pannes de configuration (VLAN, autorisation, PPPoE, DHCP…) : onglet « Configuration ».' : 'Une erreur de configuration (VLAN, autorisation, PPPoE, DHCP…) se corrige dans l\'onglet « Configuration ».'}</p>`;
     h += `<div class="section"><h4>Paramètres</h4><div class="form-grid">${def.props.map(f => fieldHTML(f, d.props[f.key], 'dev')).join('')}</div></div>`;
@@ -1044,9 +1121,10 @@
 
   function overviewHTML() {
     const n = S.topo.devices.filter(d => !isContainer(d)).length;
-    const nb = S.topo.devices.filter(isContainer).length;
+    const nb = S.topo.devices.filter(d => isContainer(d) && !isRoom(d)).length;
+    const nr = S.topo.devices.filter(isRoom).length;
     let h = `<div class="insp-head"><div><b>Aucune sélection</b><small>Cliquez sur un équipement, un câble ou un bâtiment</small></div></div>`;
-    h += `<div class="section"><h4>Topologie</h4><table class="kv"><tr><td>Équipements</td><td>${n}</td></tr><tr><td>Bâtiments</td><td>${nb}</td></tr><tr><td>Câbles</td><td>${S.topo.links.length}</td></tr>`;
+    h += `<div class="section"><h4>Topologie</h4><table class="kv"><tr><td>Équipements</td><td>${n}</td></tr><tr><td>Bâtiments</td><td>${nb}${nr ? ` (${nr} ${nr > 1 ? 'locaux' : 'local'})` : ''}</td></tr><tr><td>Câbles</td><td>${S.topo.links.length}</td></tr>`;
     const onts = S.topo.devices.filter(d => d.type === 'ont' || (d.type === 'switch' && d.props.role === 'acces'));
     if (onts.length) {
       const c = { ok: 0, weak: 0, los: 0, sat: 0, nc: 0, dark: 0 };
@@ -1081,7 +1159,7 @@
     const ports = portsOf(d).in.map((p, k) => [p, k]).filter(([p, k]) => p.kind === 'opt' && S.engine.inMap.has(d.id + '#' + k));
     let port = S.bilanPort !== null ? S.bilanPort : t.port;
     if (port === null) { const b = S.engine.bestIn(d.id); port = b ? b.port : (ports[0] ? ports[0][1] : null); }
-    let h = `<div class="insp-head"><span class="chip" style="background:${CATALOG[d.type].color}">${CATALOG[d.type].short}</span><div><b>Bilan jusqu'à : ${esc(d.props.name)}</b><small>Somme des pertes depuis la source</small></div></div>`;
+    let h = `<div class="insp-head"><span class="chip" style="background:${CATALOG[d.type].color}">${CATALOG[d.type].short}</span><div><b>Bilan jusqu'à : ${esc(d.props.name)}</b>${d.parent ? `<small>📍 ${esc(locationText(d))}</small>` : ''}<small>Somme des pertes depuis la source</small></div></div>`;
     if (ports.length > 1) h += `<label class="inline-label">Port d'entrée <select id="bilanPort">${ports.map(([p, k]) => `<option value="${k}" ${k === port ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>`;
     const res = port !== null ? S.engine.traceIn(d.id, port) : null;
     if (!ports.length) return h + `<div class="alert warn">Aucun câble optique n'arrive sur cet équipement.</div>`;

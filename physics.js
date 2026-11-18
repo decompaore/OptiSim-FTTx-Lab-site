@@ -317,6 +317,14 @@
         { key: 'floorHeight', label: 'Hauteur d\'étage', type: 'number', min: 2.5, max: 5, step: 0.1, unit: 'm' }],
       inPorts: () => [], outPorts: () => [], mapping: 'none'
     },
+    local: {
+      label: 'Local (logement, bureau, pièce)', short: 'LOC', cat: 'bat', color: '#64748b', container: true, room: true,
+      desc: 'Compartiment d\'un bâtiment : appartement, bureau, commerce, pièce, parties communes ou local technique. Il se dessine dans un bâtiment ou un étage, se déplace et se redimensionne ; les équipements posés dedans y sont rattachés. Il n\'intervient pas dans les calculs.',
+      defaults: { name: 'Logement', kind: 'Logement' },
+      props: [P.name,
+        { key: 'kind', label: 'Type de local', type: 'select', options: ['Logement', 'Bureau', 'Commerce', 'Pièce', 'Parties communes', 'Local technique'] }],
+      inPorts: () => [], outPorts: () => [], mapping: 'none'
+    },
     odf_int: {
       label: 'ODF intérieur / tiroir de baie', short: 'ODF-I', cat: 'bat', color: '#0d9488',
       desc: 'Répartiteur en local technique (pied d\'immeuble) ou sous-répartiteur d\'étage (FTTO). Port à port.',
@@ -458,8 +466,13 @@
       const n = mduLevels(b).length;
       return { x: b.x, y: b.y, w: b.w || 620, h: BLD_HEADER + n * (b.floorPx || 170) };
     }
+    if (b.type === 'local') return { x: b.x, y: b.y, w: b.w || 220, h: b.h || 120 };
     return { x: b.x, y: b.y, w: b.w || 360, h: b.h || 230 };
   }
+  /** Local (compartiment) : conteneur visuel, sans effet sur les calculs. */
+  const isRoom = d => !!(d && CATALOG[d.type] && CATALOG[d.type].room);
+  /** Couleur d'un type de local. */
+  const ROOM_COLORS = { 'Logement': '#16a34a', 'Bureau': '#2563eb', 'Commerce': '#d97706', 'Pièce': '#9333ea', 'Parties communes': '#64748b', 'Local technique': '#475569' };
 
   /** Dimensions d'un équipement sur le canevas. */
   const DEV_W = 124;
@@ -479,11 +492,16 @@
     const sp = (s.h - 28) / n;
     return { x: d.x + (side === 'in' ? 0 : s.w), y: d.y + 20 + sp * (idx + 0.5) };
   }
-  /** Rattache chaque équipement au bâtiment qui le contient (et à son étage). */
+  /**
+   * Rattache chaque équipement (et chaque local) au bâtiment qui le contient et à
+   * son étage, puis chaque équipement au local qui le contient (`room`).
+   * Les locaux ne servent qu'à illustrer : seuls `parent` et `floor` entrent dans les calculs.
+   */
   function assignParents(topo) {
-    const blds = topo.devices.filter(d => CATALOG[d.type] && CATALOG[d.type].container);
+    const blds = topo.devices.filter(d => CATALOG[d.type] && CATALOG[d.type].container && !isRoom(d));
+    const rooms = topo.devices.filter(isRoom);
     for (const d of topo.devices) {
-      if (CATALOG[d.type].container) continue;
+      if (CATALOG[d.type].container && !isRoom(d)) continue;
       const s = deviceSize(d);
       const cx = d.x + s.w / 2, cy = d.y + s.h / 2;
       let best = null, area = Infinity;
@@ -498,6 +516,14 @@
           const lv = mduLevels(best).find(l => cy >= l.y0 && cy < l.y1);
           d.floor = lv ? lv.floor : 0;
         } else d.floor = 0;
+      }
+      d.room = undefined;
+      if (!isRoom(d)) {
+        let rArea = Infinity;
+        for (const r of rooms) {
+          const rr = buildingRect(r);
+          if (cx >= rr.x && cx <= rr.x + rr.w && cy >= rr.y && cy <= rr.y + rr.h && rr.w * rr.h < rArea) { d.room = r.id; rArea = rr.w * rr.h; }
+        }
       }
     }
   }
@@ -1055,7 +1081,7 @@
     PROFILES, GPON_DOWN, GPON_UP, ACCESS_MODES, autoSerial,
     REF_SENSITIVITY, REF_OVERLOAD, WEAK_MARGIN, VFL_RANGE, ETH_MAX, BLD_HEADER,
     connectorFamily, connectorColor, connectorFormat, bendLoss, faultLoss,
-    mduLevels, floorLabel, buildingRect, deviceSize, portPos, assignParents, DEV_W, portsOf, fmt, fmtLen, attFor, classify,
+    mduLevels, floorLabel, buildingRect, isRoom, ROOM_COLORS, deviceSize, portPos, assignParents, DEV_W, portsOf, fmt, fmtLen, attFor, classify,
     Engine, otdrShot, vflInject
   };
 })(typeof window !== 'undefined' ? window : globalThis);
