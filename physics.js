@@ -319,7 +319,7 @@
     },
     local: {
       label: 'Local (logement, bureau, pièce)', short: 'LOC', cat: 'bat', color: '#64748b', container: true, room: true,
-      desc: 'Compartiment d\'un bâtiment : appartement, bureau, commerce, pièce, parties communes ou local technique. Il se dessine dans un bâtiment ou un étage, se déplace et se redimensionne ; les équipements posés dedans y sont rattachés. Il n\'intervient pas dans les calculs.',
+      desc: 'Compartiment d\'un bâtiment : appartement, bureau, commerce, pièce, parties communes ou local technique. Il se dessine dans un bâtiment ou un étage, se déplace et s\'ajuste à la souris (poignées des coins et des côtés) ; les équipements posés dedans y sont rattachés. Il n\'intervient pas dans les calculs.',
       defaults: { name: 'Logement', kind: 'Logement' },
       props: [P.name,
         { key: 'kind', label: 'Type de local', type: 'select', options: ['Logement', 'Bureau', 'Commerce', 'Pièce', 'Parties communes', 'Local technique'] }],
@@ -565,8 +565,60 @@
   /* ------------------------------------------------------------------ */
   /*  Moteur de calcul                                                    */
   /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /*  Recette réaliste : dispersion des composants d'un réseau réel       */
+  /* ------------------------------------------------------------------ */
+  // Les valeurs de référence (0,5 dB par connecteur, 0,05 dB par épissure…) servent au
+  // calcul théorique. Sur un vrai réseau, chaque composant est un peu différent, et le plus
+  // souvent meilleur. En mode recette (topo.recette.actif), chaque élément reçoit une perte
+  // « réelle » tirée au hasard, reproductible (graine du réseau + identifiant de l'élément).
+  // Les pannes et les incompatibilités APC/UPC gardent leur valeur exacte.
+  const RECETTE_SEUILS = { acceptable: 0.5, controle: 1.0, marge: 3, suspect: 2 };
+  function hash32(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function seeded(seed) {
+    return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  const gauss = r => (r() + r() + r() + r() - 2) * Math.sqrt(3); // ≈ loi normale centrée réduite
+  const clampV = (v, a, b) => Math.min(b, Math.max(a, v));
+  const REAL_MODEL = {
+    fiber: (nom, r) => nom * clampV(0.94 + 0.04 * gauss(r), 0.85, 1.05),        // fibre souvent un peu meilleure que la valeur typique
+    fusion: (nom, r) => clampV(0.035 + 0.02 * gauss(r), 0.01, 0.12),             // épissure fusion : 0,01 à 0,12 dB
+    mechanical: (nom, r) => clampV(0.15 + 0.05 * gauss(r), 0.05, 0.3),          // épissure mécanique
+    connector: (nom, r) => clampV(nom * 0.55 + 0.08 * gauss(r), 0.1, nom + 0.05), // connecteur propre : ≈ 0,15 à 0,45 dB
+    splitter: (nom, r) => clampV(nom - 0.25 + 0.25 * gauss(r), nom - 0.8, nom + 0.4)
+  };
+  function realLoss(seed, key, it) {
+    if (it.fault || it.kind === 'mismatch' || !isFinite(it.loss) || !(it.loss > 0)) return it.loss;
+    const k = it.kind === 'splice' ? (it.loss <= 0.1 ? 'fusion' : 'mechanical') : it.kind;
+    const f = REAL_MODEL[k];
+    return f ? Math.round(f(it.loss, seeded(hash32(seed + '|' + key))) * 10000) / 10000 : it.loss;
+  }
+  /**
+   * Verdict de recette d'un récepteur : puissance calculée (théorique) et mesurée (dBm).
+   * Écart = perte mesurée − perte calculée = P théorique − P mesurée.
+   */
+  function recetteVerdict(theo, mes, sens, over, seuils) {
+    if (mes === null || mes === undefined || mes === '' || !Number.isFinite(+mes)) return null;
+    mes = +mes;
+    const S = Object.assign({}, RECETTE_SEUILS, seuils || {});
+    const ecart = Math.round((theo - mes) * 100) / 100;
+    const v = (code, label) => ({ code, label, ecart });
+    if (mes < sens) return v('los', 'Non conforme : sous la sensibilité');
+    if (mes > over) return v('los', 'Non conforme : saturation');
+    if (mes - sens < S.marge) return v('los', `Non conforme : marge < ${String(S.marge).replace('.', ',')} dB`);
+    if (ecart < -S.suspect) return v('weak', 'Mesure suspecte : vérifier la référence du photomètre');
+    if (ecart <= 0) return v('ok', 'Conforme');
+    if (ecart <= S.acceptable) return v('ok', 'Acceptable : nettoyer les connecteurs');
+    if (ecart <= S.controle) return v('weak', 'À contrôler à l\'OTDR');
+    return v('los', 'Non conforme : défaut à localiser');
+  }
+
   class Engine {
-    constructor(topo) {
+    /** opts.reference : ignore le mode recette (calcul avec les valeurs de référence). */
+    constructor(topo, opts = {}) {
+      const rc = topo.recette;
+      this.real = !opts.reference && !!(rc && rc.actif);
+      this.seed = String((rc && rc.graine) || 1);
       this.topo = topo;
       this.dev = new Map(topo.devices.map(d => [d.id, d]));
       this.inMap = new Map();
@@ -582,6 +634,72 @@
 
     def(d) { return CATALOG[d.type]; }
     building(d) { return d && d.parent ? this.dev.get(d.parent) : null; }
+
+    /**
+     * Choix du câble : le type de câble convient-il pour relier ces deux équipements ?
+     * Renvoie une liste de conseils { text, suggest: [types de câbles adaptés] }.
+     * Compétence évaluée chez l'élève : seul l'enseignant voit ces conseils (app.js).
+     */
+    cableAdvice(link) {
+      const A = this.dev.get(link.a.dev), B = this.dev.get(link.b.dev);
+      if (!A || !B) return [];
+      const t = link.type, out = [];
+      const add = (text, suggest) => out.push({ text, suggest: suggest || [] });
+      const ba = this.building(A), bb = this.building(B);
+      const same = !!ba && ba === bb;
+      const len = Math.max(0, +link.length || 0);
+      const isMM = t === 'om3' || t === 'om4';
+      const ACCESS_SM = new Set(['olt', 'ont', 'sro', 'pbo_ext', 'pbo_int', 'pmi', 'pto', 'splitter']);
+      const ACTIVE = new Set(['olt', 'ont', 'switch', 'switch_aon']);
+      const mmSfp = d => d.type === 'switch' && /Multimode/.test(d.props.fiberMode || '');
+      const smSfp = d => d.type === 'switch' && !/Multimode/.test(d.props.fiberMode || '');
+      const name = d => d.props.name;
+      const where = d => { const b = this.building(d); return b ? `dans « ${b.props.name} »` : 'à l\'extérieur'; };
+      if (CABLES[t].kind !== 'opt') return out;
+
+      // Monomode / multimode
+      if (isMM) {
+        const sm = [A, B].find(d => ACCESS_SM.has(d.type));
+        if (sm) add(`Fibre multimode raccordée à ${name(sm)} : le réseau d'accès FTTH (GPON, PBO, PTO) utilise uniquement de la fibre monomode.`, ['smf', 'drop', 'lszh', 'riser', 'patch']);
+        const s = [A, B].find(smSfp);
+        if (s) add(`${name(s)} a un SFP monomode : il faut une fibre monomode (ou un SFP multimode 850 nm).`, ['smf', 'patch']);
+        const max = t === 'om3' ? 300 : 400;
+        if (len > max) add(`${CABLES[t].short} sur ${len} m : au-delà de ${max} m à 10 Gbit/s, passez en ${t === 'om3' ? 'OM4 ou en ' : ''}monomode.`, t === 'om3' ? ['om4', 'smf'] : ['smf']);
+      } else if (t !== 'patch') { // une jarretière existe en monomode comme en multimode
+        const s = [A, B].find(mmSfp);
+        if (s) add(`${name(s)} a un SFP multimode (850 nm) : il se raccorde en fibre multimode OM3 / OM4.`, ['om3', 'om4']);
+      }
+
+      switch (t) {
+        case 'patch':
+          if (len > 20) add(`Jarretière de ${len} m : une jarretière sert au brassage court (1 à 5 m) dans une baie ou un local. Pour une liaison, choisissez un câble.`, same ? ['lszh', 'riser'] : ['smf', 'drop']);
+          else if ((ba || null) !== (bb || null)) add(`Jarretière entre ${name(A)} (${where(A)}) et ${name(B)} (${where(B)}) : une jarretière ne sort pas du local ; entre deux sites, il faut un câble.`, ['smf', 'drop']);
+          break;
+        case 'smf':
+          if (same) add(`Câble de transport extérieur G.652D à l'intérieur de « ${ba.props.name} » : dans un bâtiment, utilisez la colonne montante (entre étages) ou un câble intérieur LSZH.`, ['riser', 'lszh']);
+          else if (A.type === 'pbo_ext' && B.type === 'pto') add(`Branchement d'abonné (PBO extérieur → PTO) : on utilise un câble drop G.657A2, plus souple et prévu pour l'aérien ou la façade.`, ['drop']);
+          break;
+        case 'drop':
+          if (B.type !== 'pto' && B.type !== 'splice') add(`Le drop arrive normalement sur une PTO, pas sur ${name(B)}.`, B.type === 'odf' || A.type === 'odf' ? ['smf'] : ['patch']);
+          if (A.type === 'odf' || A.type === 'olt' || A.type === 'sro') add(`Drop au départ de ${name(A)} : le drop est le câble de branchement depuis le PBO ; entre NRO, SRO et PBO, c'est un câble de transport / distribution.`, ['smf']);
+          if (bb && bb.type === 'bld_mdu' && ba === bb) add(`Branchement à l'intérieur d'un immeuble : du PBO d'étage à la PTO, on utilise un câble intérieur LSZH.`, ['lszh']);
+          break;
+        case 'lszh':
+          if (!same) add(`Câble intérieur LSZH entre ${name(A)} (${where(A)}) et ${name(B)} (${where(B)}) : il ne doit pas cheminer à l'extérieur. Utilisez un drop ou un câble de transport.`, ['drop', 'smf']);
+          else if (ba.type === 'bld_mdu' && A.floor !== B.floor) add(`LSZH entre deux étages : la liaison verticale se fait en câble de colonne montante.`, ['riser']);
+          break;
+        case 'riser':
+          if (!same || ba.type !== 'bld_mdu') add(`La colonne montante relie deux étages d'un même immeuble ; ici, ${name(A)} et ${name(B)} ne sont pas dans un même immeuble.`, ['smf', 'drop']);
+          else if (A.floor === B.floor) add(`Colonne montante sur un même étage : pour une liaison horizontale, utilisez un câble intérieur LSZH (ou une jarretière dans le même local).`, ['lszh', 'patch']);
+          break;
+      }
+      // Un équipement actif se raccorde par une jarretière (sur ODF, PTO, PMI…), pas directement sur un câble posé
+      if (t !== 'patch' && !isMM) {
+        const act = [A, B].find(d => ACTIVE.has(d.type));
+        if (act) add(`${name(act)} est un équipement actif : il se branche par une jarretière sur un ODF, un PMI ou une PTO, pas directement sur un ${CABLES[t].short}.`, ['patch']);
+      }
+      return out;
+    }
 
     /** Longueur effective d'un lien (auto colonne montante, gaine de bâtiment simple). */
     lengthInfo(link) {
@@ -671,6 +789,10 @@
     }
 
     _seg(kind, obj, label, category, items, length, warnings) {
+      if (this.real) items = items.map((it, i) => {
+        const r = realLoss(this.seed, `${obj.id}:${i}:${it.kind}`, it);
+        return r === it.loss ? it : Object.assign({}, it, { loss: r, nominal: it.loss });
+      });
       let loss = 0, cut = false;
       for (const it of items) { if (isFinite(it.loss)) loss += it.loss; else cut = true; }
       return { kind, id: obj.id, label, category, items, loss, cut, length, warnings };
@@ -1076,12 +1198,39 @@
     return { lit, leaks, glow };
   }
 
+  /**
+   * Lignes de la fiche de recette : pour chaque récepteur alimenté (ONT, switch, CPE…),
+   * puissance calculée avec les valeurs de référence sur le réseau sans panne (théorique)
+   * et puissance réellement reçue (avec dispersion et pannes).
+   */
+  function recetteRows(topo) {
+    const t = JSON.parse(JSON.stringify({ devices: topo.devices, links: topo.links, recette: topo.recette }));
+    assignParents(t);
+    const real = new Engine(t);
+    const d0 = JSON.parse(JSON.stringify(t));
+    d0.devices.forEach(d => { delete d.fault; }); d0.links.forEach(l => { delete l.fault; });
+    assignParents(d0);
+    const design = new Engine(d0, { reference: true });
+    const rows = [];
+    t.devices.forEach(d => {
+      if (CATALOG[d.type].container) return;
+      const s = real.sensOf(d);
+      if (s.passive) return;
+      const sd = design.deviceState(d.id);
+      if (!sd || !sd.res || sd.res.dark || sd.power === undefined || sd.power === null) return;
+      const sr = real.deviceState(d.id);
+      rows.push({ id: d.id, name: d.props.name, theo: Math.round(sd.power * 100) / 100, theoLoss: Math.round(sd.res.loss * 100) / 100, tx: sd.res.tx,
+        real: sr && Number.isFinite(sr.power) ? Math.round(sr.power * 100) / 100 : null, sens: s.sens, over: s.over });
+    });
+    return rows;
+  }
+
   global.OptiPhysics = {
     ATTENUATION, SPLITTER_LOSS, JOINTS, FAULTS, CABLES, CATALOG, CONNECTORS, CATEGORIES, TERMINALS,
     PROFILES, GPON_DOWN, GPON_UP, ACCESS_MODES, autoSerial,
     REF_SENSITIVITY, REF_OVERLOAD, WEAK_MARGIN, VFL_RANGE, ETH_MAX, BLD_HEADER,
     connectorFamily, connectorColor, connectorFormat, bendLoss, faultLoss,
     mduLevels, floorLabel, buildingRect, isRoom, ROOM_COLORS, deviceSize, portPos, assignParents, DEV_W, portsOf, fmt, fmtLen, attFor, classify,
-    Engine, otdrShot, vflInject
+    Engine, otdrShot, vflInject, RECETTE_SEUILS, recetteVerdict, recetteRows
   };
 })(typeof window !== 'undefined' ? window : globalThis);

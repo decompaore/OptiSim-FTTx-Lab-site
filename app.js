@@ -60,6 +60,12 @@
   const linkById = id => S.topo.links.find(l => l.id === id);
   const isContainer = d => d && CATALOG[d.type] && CATALOG[d.type].container;
   const isRoom = P.isRoom; // local : conteneur visuel dans un bâtiment
+  /**
+   * Choix du câble (compétence de l'élève) : conseils visibles dans la version enseignant
+   * seulement ; la version élève ne signale rien.
+   */
+  let cableTips = () => [];
+  
   /** Emplacement d'un équipement : bâtiment, étage, local. */
   function locationText(d) {
     if (!d || !d.parent) return '';
@@ -71,8 +77,15 @@
   /* ------------------------------------------------------------------ */
   /*  Topologie : normalisation, mutations, annulation                    */
   /* ------------------------------------------------------------------ */
+  /** Réglage de recette (mode réaliste, graine, seuils, mesures saisies). */
+  function normRecette(r) {
+    const mesures = {};
+    Object.entries((r && r.mesures) || {}).forEach(([k, v]) => { if (Number.isFinite(+v)) mesures[k] = +v; });
+    return { actif: !!(r && r.actif), graine: +(r && r.graine) || 1, seuils: Object.assign({}, P.RECETTE_SEUILS, (r && r.seuils) || {}), mesures };
+  }
   function normalize(topo) {
     const t = { devices: [], links: [] };
+    if (topo && topo.recette) t.recette = normRecette(topo.recette);
     for (const d of (topo && topo.devices) || []) {
       const def = CATALOG[d.type];
       if (!def) continue;
@@ -166,6 +179,8 @@
   function refresh(opts = {}) {
     P.assignParents(S.topo);
     S.engine = new P.Engine(S.topo);
+    // Mode recette : les instruments mesurent le réseau réel (S.engine), le bilan affiche le calcul de référence (S.engineRef)
+    S.engineRef = S.topo.recette && S.topo.recette.actif ? new P.Engine(S.topo, { reference: true }) : S.engine;
     S.services = analyzeServices();
     // Pannes de configuration corrigées par l'élève (valeurs d'origine ou correction équivalente)
     const fixedNow = S.topo.devices.filter(d => d.cfgFault && SV.cfgFaultFixed(d, { topo: S.topo, analysis: S.services }));
@@ -203,7 +218,7 @@
     roomObstacles = blds.some(isRoom) ? labelObstacles() : [];
     layerB.innerHTML = blds.map(b => isRoom(b) ? roomSVG(b) : bldSVG(b)).join('');
     layerL.innerHTML = S.topo.links.map(linkSVG).join('');
-    layerD.innerHTML = devs.map(devSVG).join('');
+    layerD.innerHTML = devs.map(devSVG).join('') + selectionHandlesSVG();
     renderDecorations();
     renderRubber();
     $('#emptyHint').hidden = S.topo.devices.length > 0;
@@ -233,7 +248,7 @@
       const my = r.y + 30 + (r.h - 30) / 2;
       s += `<rect class="pa" x="${r.x - 7}" y="${my - 11}" width="14" height="22" rx="3"/><text class="pa-label" x="${r.x}" y="${my + 4}" text-anchor="middle">PA</text>`;
     }
-    s += `<path class="handle" data-handle="${b.id}" d="M${r.x + r.w - 4} ${r.y + r.h - 16}V${r.y + r.h - 4}H${r.x + r.w - 16}Z"/>`;
+    s += handlesSVG(b, r, sel);
     return s + '</g>';
   }
 
@@ -280,6 +295,32 @@
     return spots.find(free) || spots[0];
   }
 
+  /**
+   * Poignées de redimensionnement : triangle en bas à droite ; si l'élément est
+   * sélectionné, 8 poignées (coins et milieux des côtés). Immeuble : pas de poignée
+   * en haut (les étages se recalculent depuis le haut du bâtiment).
+   */
+  const HANDLE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+  function handlesSVG(b, r, sel) {
+    const t = isRoom(b) ? 10 : 12;
+    let s = `<path class="handle" data-handle="${b.id}" data-dir="se" d="M${r.x + r.w - 3} ${r.y + r.h - t - 3}V${r.y + r.h - 3}H${r.x + r.w - t - 3}Z"/>`;
+    return s; // les 8 poignées de la sélection sont dessinées au premier plan (selectionHandlesSVG)
+  }
+  /** Poignées de l'élément sélectionné, au premier plan (un câble ne doit pas les masquer). */
+  function selectionHandlesSVG() {
+    if (S.mode !== 'design' || S.exam || !S.sel || S.sel.kind !== 'dev') return '';
+    const b = devById(S.sel.id);
+    if (!isContainer(b)) return '';
+    const r = buildingRect(b);
+    let s = '<g class="sel-handles">';
+    const pos = { nw: [0, 0], n: [.5, 0], ne: [1, 0], e: [1, .5], se: [1, 1], s: [.5, 1], sw: [0, 1], w: [0, .5] };
+    HANDLE_DIRS.filter(d => !(b.type === 'bld_mdu' && d.includes('n'))).forEach(d => {
+      const [fx, fy] = pos[d];
+      s += `<rect class="handle sq h-${d}" data-handle="${b.id}" data-dir="${d}" x="${r.x + r.w * fx - 5}" y="${r.y + r.h * fy - 5}" width="10" height="10" rx="2"/>`;
+    });
+    return s + '</g>';
+  }
+
   /** Local (logement, bureau, pièce…) dessiné dans un bâtiment. */
   function roomSVG(b) {
     const r = P.buildingRect(b);
@@ -289,7 +330,7 @@
     s += `<rect class="room-body" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="6" style="fill:${col};stroke:${col}"/>`;
     const sp = roomLabelSpot(r, b);
     s += `<text class="room-title" x="${sp.x}" y="${sp.y}" text-anchor="${sp.anchor}"><tspan class="room-label" style="fill:${col}">${esc(b.props.name)}</tspan>${b.props.kind !== b.props.name ? `<tspan class="room-kind" dx="6">${esc(b.props.kind)}</tspan>` : ''}</text>`;
-    s += `<path class="handle" data-handle="${b.id}" d="M${r.x + r.w - 3} ${r.y + r.h - 13}V${r.y + r.h - 3}H${r.x + r.w - 13}Z"/>`;
+    s += handlesSVG(b, r, sel);
     return s + '</g>';
   }
 
@@ -392,7 +433,7 @@
     const sel = S.sel && S.sel.kind === 'link' && S.sel.id === l.id;
     const ls = S.engine.linkState(l);
     const color = l.type === 'patch' ? P.connectorColor(l.connector) : cable.color;
-    let s = `<g class="link ${sel ? 'selected' : ''} t-${l.type}" data-link="${l.id}">`;
+    let s = `<g class="link ${sel ? 'selected' : ''} t-${l.type}${cableTips(l).length ? ' cable-warn' : ''}" data-link="${l.id}">`;
     s += `<path class="link-hit" d="${d}"/>`;
     s += `<path class="link-outline" d="${d}"/>`;
     s += `<path class="link-base" d="${d}" stroke="${color}" data-path="${l.id}"/>`;
@@ -545,7 +586,7 @@
     mutate(() => S.topo.devices.push(d));
     select({ kind: 'dev', id: d.id });
     const dd = devById(d.id);
-    if (isRoom(dd)) { if (!dd.parent) toast('Un local se place dans un bâtiment (ou un étage d\'immeuble) : déplacez-le à l\'intérieur.', 'warn'); else toast(`Local placé dans « ${locationText(dd)} ». Redimensionnez-le avec la poignée en bas à droite.`); }
+    if (isRoom(dd)) { if (!dd.parent) toast('Un local se place dans un bâtiment (ou un étage d\'immeuble) : déplacez-le à l\'intérieur.', 'warn'); else toast(`Local placé dans « ${locationText(dd)} ». Ajustez-le avec les poignées de ses coins et de ses côtés.`); }
     else if (dd.parent) toast(`${def.short} placé dans « ${devById(dd.parent).props.name} »${dd.floor !== undefined && devById(dd.parent).type === 'bld_mdu' ? ' — ' + P.floorLabel(dd.floor) : ''}.`);
   }
 
@@ -568,7 +609,7 @@
 
     if (handle && S.mode === 'design' && !S.exam) {
       const b = devById(handle.dataset.handle);
-      drag = { kind: 'resize', id: b.id, start: w, w0: b.w, h0: b.h, fp0: b.floorPx, snap: snapshot(), moved: false };
+      drag = { kind: 'resize', id: b.id, dir: handle.dataset.dir || 'se', start: w, x0: b.x, y0: b.y, w0: b.w, h0: b.h, fp0: b.floorPx, snap: snapshot(), moved: false };
       svg.setPointerCapture(e.pointerId); return;
     }
     if (devEl) {
@@ -608,11 +649,16 @@
       const b = devById(drag.id);
       const dx = w.x - drag.start.x, dy = w.y - drag.start.y;
       drag.moved = true;
-      b.w = Math.max(isRoom(b) ? 80 : 240, Math.round((drag.w0 + dx) / 10) * 10);
+      const dir = drag.dir, minW = isRoom(b) ? 80 : 240, minH = isRoom(b) ? 50 : 140;
+      const snap = v => Math.round(v / 10) * 10;
+      if (dir.includes('e')) b.w = Math.max(minW, snap(drag.w0 + dx));
+      if (dir.includes('w')) { const nw = Math.max(minW, snap(drag.w0 - dx)); b.x = drag.x0 + drag.w0 - nw; b.w = nw; }
       if (b.type === 'bld_mdu') {
-        const n = mduLevels(b).length;
-        b.floorPx = Math.max(110, Math.round((drag.fp0 + dy / n) / 5) * 5);
-      } else b.h = Math.max(isRoom(b) ? 50 : 140, Math.round((drag.h0 + dy) / 10) * 10);
+        if (dir.includes('s')) { const n = mduLevels(b).length; b.floorPx = Math.max(110, Math.round((drag.fp0 + dy / n) / 5) * 5); }
+      } else {
+        if (dir.includes('s')) b.h = Math.max(minH, snap(drag.h0 + dy));
+        if (dir.includes('n')) { const nh = Math.max(minH, snap(drag.h0 - dy)); b.y = drag.y0 + drag.h0 - nh; b.h = nh; }
+      }
       render();
     }
   });
@@ -773,7 +819,9 @@
         closeModal();
         mutate(() => S.topo.links.push(link));
         select({ kind: 'link', id: link.id });
-        toast(`Câble créé : ${A.props.name} → ${B.props.name}`, 'ok');
+        const tips = cableTips(link);
+        if (tips.length) toast(`Câble inadapté : ${tips[0].text}${tips[0].suggest.length ? ' Préférez : ' + cableNames(tips[0].suggest) + '.' : ''}`, 'warn');
+        else toast(`Câble créé : ${A.props.name} → ${B.props.name}`, 'ok');
       } }
     ]);
     setTimeout(() => { const i = $('#cdLen'); if (i) { i.focus(); i.select(); } }, 30);
@@ -859,7 +907,7 @@
       const B = d.parent ? devById(d.parent) : null;
       h += `<div class="section"><h4>Informations</h4><table class="kv"><tr><td>Bâtiment</td><td>${B ? esc(B.props.name) + (B.type === 'bld_mdu' ? ' — ' + P.floorLabel(d.floor) : '') : '<span class="st-weak">hors bâtiment</span>'}</td></tr>`;
       h += `<tr><td>Équipements</td><td>${inside.length ? inside.map(x => `<a href="#" data-sel-dev="${x.id}">${esc(x.props.name)}</a>`).join(', ') : '<span class="muted">aucun</span>'}</td></tr><tr><td>Taille</td><td>${Math.round(d.w)} × ${Math.round(d.h)} px</td></tr></table>`;
-      h += '<p class="muted small">Le local illustre le plan du bâtiment : il n\'intervient pas dans le bilan. Déplacez-le (ses équipements suivent) ou redimensionnez-le avec la poignée en bas à droite.</p></div>';
+      h += '<p class="muted small">Le local illustre le plan du bâtiment : il n\'intervient pas dans le bilan. Déplacez-le (ses équipements suivent) ou ajustez-le avec les poignées de ses coins et de ses côtés.</p></div>';
       return h + `<div class="row"><button class="btn danger" data-act="delete">Supprimer le local</button></div>`;
     }
     if (def.container) {
@@ -1089,6 +1137,7 @@
     h += `<p class="muted">${esc(c.help)}</p>`;
     if (c.kind === 'opt') h += `<div class="section status-line">${statusPill(ls.code === 'dark' ? { code: 'nc', label: 'Pas de lumière (aucune source)' } : { code: ls.code, label: ls.label || 'LOS' })}${ls.power !== undefined && ls.power !== null ? `<b class="big">${dbm(ls.power)}</b><small>à l'arrivée</small>` : ''}</div>`;
     else h += `<div class="section status-line">${statusPill(ls.up ? { code: 'ok', label: c.kind === 'up' ? 'Lien de collecte actif (10 Gbit/s)' : 'Lien Ethernet actif' } : { code: 'los', label: ls.reason || 'Lien inactif' })}</div>`;
+    
     h += faultEditor(l, true);
     const outOpts = portsOf(A).out.map((p, k) => [p, k]).filter(([p, k]) => p.kind === c.kind && (k === l.a.port || !S.engine.outMap.has(A.id + '#' + k)));
     const inOpts = portsOf(B).in.map((p, k) => [p, k]).filter(([p, k]) => p.kind === c.kind && (k === l.b.port || !S.engine.inMap.has(B.id + '#' + k)));
@@ -1107,7 +1156,7 @@
     h += '</div></div>';
     if (c.kind === 'opt') {
       const lambda = (ls.res && ls.res.lambda) || 1310;
-      const seg = S.engine.linkSegment(l, lambda);
+      const seg = S.engineRef.linkSegment(l, lambda); // mode recette : valeurs de référence
       h += `<div class="section"><h4>Pertes du câble à ${lambda} nm</h4><table class="kv">`;
       seg.items.filter(it => !it.hidden).forEach(it => { h += `<tr><td>${esc(it.label)}</td><td class="num">${isFinite(it.loss) ? fmt(it.loss, 3) + ' dB' : '<b class="st-los">∞</b>'}</td></tr>`; });
       h += `<tr class="total"><td>Total câble</td><td class="num">${fmt(seg.items.filter(it => !it.hidden).reduce((s, it) => s + (isFinite(it.loss) ? it.loss : 0), 0), 3)} dB</td></tr></table>`;
@@ -1125,6 +1174,7 @@
     const nr = S.topo.devices.filter(isRoom).length;
     let h = `<div class="insp-head"><div><b>Aucune sélection</b><small>Cliquez sur un équipement, un câble ou un bâtiment</small></div></div>`;
     h += `<div class="section"><h4>Topologie</h4><table class="kv"><tr><td>Équipements</td><td>${n}</td></tr><tr><td>Bâtiments</td><td>${nb}${nr ? ` (${nr} ${nr > 1 ? 'locaux' : 'local'})` : ''}</td></tr><tr><td>Câbles</td><td>${S.topo.links.length}</td></tr>`;
+    
     const onts = S.topo.devices.filter(d => d.type === 'ont' || (d.type === 'switch' && d.props.role === 'acces'));
     if (onts.length) {
       const c = { ok: 0, weak: 0, los: 0, sat: 0, nc: 0, dark: 0 };
@@ -1154,14 +1204,16 @@
 
   function bilanHTML() {
     const t = bilanTarget();
-    if (!t) return `<div class="insp-head"><div><b>Bilan optique</b><small>Sélectionnez un équipement récepteur (ONT, PTO, switch…) ou un câble.</small></div></div><p class="muted">Le bilan détaille, tronçon par tronçon, toutes les pertes entre la source (OLT / switch) et le point choisi : NRO, extérieur, ODF/PMI, colonne montante, PBO d'étage et branchement abonné.</p>`;
+    if (!t) return `<div class="insp-head"><div><b>Bilan optique</b><small>Sélectionnez un équipement récepteur (ONT, PTO, switch…) ou un câble.</small></div></div><p class="muted">Le bilan détaille, tronçon par tronçon, toutes les pertes entre la source (OLT / switch) et le point choisi : NRO, extérieur, ODF/PMI, colonne montante, PBO d'étage et branchement abonné.</p>` + recetteHTML();
+    const E = S.engineRef, recette = E !== S.engine;
     const d = t.d;
-    const ports = portsOf(d).in.map((p, k) => [p, k]).filter(([p, k]) => p.kind === 'opt' && S.engine.inMap.has(d.id + '#' + k));
+    const ports = portsOf(d).in.map((p, k) => [p, k]).filter(([p, k]) => p.kind === 'opt' && E.inMap.has(d.id + '#' + k));
     let port = S.bilanPort !== null ? S.bilanPort : t.port;
-    if (port === null) { const b = S.engine.bestIn(d.id); port = b ? b.port : (ports[0] ? ports[0][1] : null); }
+    if (port === null) { const b = E.bestIn(d.id); port = b ? b.port : (ports[0] ? ports[0][1] : null); }
     let h = `<div class="insp-head"><span class="chip" style="background:${CATALOG[d.type].color}">${CATALOG[d.type].short}</span><div><b>Bilan jusqu'à : ${esc(d.props.name)}</b>${d.parent ? `<small>📍 ${esc(locationText(d))}</small>` : ''}<small>Somme des pertes depuis la source</small></div></div>`;
+    if (recette) h += '<div class="alert info small">Mode recette réaliste : ce bilan est le <b>calcul théorique</b> (valeurs de référence). La puissance réellement reçue se mesure au photomètre ; comparez-les dans la fiche de recette (onglet Bilan optique, sans sélection).</div>';
     if (ports.length > 1) h += `<label class="inline-label">Port d'entrée <select id="bilanPort">${ports.map(([p, k]) => `<option value="${k}" ${k === port ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>`;
-    const res = port !== null ? S.engine.traceIn(d.id, port) : null;
+    const res = port !== null ? E.traceIn(d.id, port) : null;
     if (!ports.length) return h + `<div class="alert warn">Aucun câble optique n'arrive sur cet équipement.</div>`;
     if (!res) return h + `<div class="alert warn">Aucun chemin optique continu n'arrive sur cet équipement (port non raccordé ou erreur de brassage en amont).</div>`;
     const groups = new Map(CATEGORIES.map(c => [c, []]));
@@ -1192,13 +1244,13 @@
     }
     h += '</table>';
     if (hiddenFault) h += '<p class="muted small">Une perte inconnue (panne cachée) est présente : utilisez les instruments pour la localiser.</p>';
-    const sens = S.engine.sensOf(d);
-    const pw = S.engine.power(res);
+    const sens = E.sensOf(d);
+    const pw = E.power(res);
     const shownLoss = hiddenFault ? null : total;
     h += `<table class="kv summary"><tr><td>Σ pertes${res.lost ? ' (avant coupure)' : ''}</td><td class="num">${shownLoss === null ? '?' : fmt(shownLoss, 2) + ' dB'}</td></tr>
       <tr><td>Longueur optique totale</td><td class="num">${fmtLen(Math.round(res.length * 10) / 10)}</td></tr>`;
     if (!res.dark) {
-      h += `<tr><td>Puissance reçue</td><td class="num"><b>${res.lost ? 'LOS' : hiddenFault ? '→ mesurer' : dbm(pw)}</b></td></tr>
+      h += `<tr><td>${recette ? 'Puissance calculée' : 'Puissance reçue'}</td><td class="num"><b>${res.lost ? 'LOS' : hiddenFault ? '→ mesurer' : dbm(pw)}</b></td></tr>
         <tr><td>Sensibilité ${sens.passive ? '(réf. ONT B+)' : ''}</td><td class="num">${dbm(sens.sens)}</td></tr>`;
       if (!res.lost && !hiddenFault) {
         const st = P.classify(pw, sens.sens, sens.over, sens.passive);
@@ -1208,6 +1260,34 @@
     h += '</table>';
     if (!res.dark && !res.lost && !hiddenFault) h += `<p class="formula">P<sub>rx</sub> = ${dbm(res.tx)} − ${fmt(total)} dB = <b>${dbm(pw)}</b></p>`;
     if (res.lost) h += `<div class="alert err">Signal interrompu : ${esc(res.segments[res.lostAt].label)}.</div>`;
+    return h;
+  }
+
+  /* ---------------- Fiche de recette ---------------- */
+  const parseDbm = v => { const x = parseFloat(String(v).replace(/\u2212/g, '-').replace(',', '.').replace(/[^\d.+-]/g, '')); return Number.isFinite(x) ? Math.round(x * 100) / 100 : null; };
+  function ensureRecette() { if (!S.topo.recette) S.topo.recette = normRecette({}); return S.topo.recette; }
+  function recetteHTML() {
+    const rc = S.topo.recette, seuils = Object.assign({}, P.RECETTE_SEUILS, rc && rc.seuils);
+    const rows = P.recetteRows(S.topo);
+    let h = '<div class="section recette"><h4>Fiche de recette</h4>';
+    h += rc && rc.actif
+      ? '<p class="small">Mode <b>recette réaliste</b> : chaque composant du réseau a sa propre perte, proche des valeurs de référence (souvent meilleure). Mesurez chaque récepteur au <b>photomètre</b>, saisissez la valeur, puis concluez.</p>'
+      : '<p class="muted small">Recette réaliste désactivée : la mesure est égale au calcul (valeurs de référence). Saisissez tout de même vos mesures pour vous entraîner.</p>';
+    
+    if (!rows.length) return h + '<p class="muted small">Aucun récepteur alimenté (ONT, switch, CPE).</p></div>';
+    const cols = TEACHER ? 5 : 4;
+    h += `<table class="cfg-table recette-table"><tr><th>Récepteur</th><th>Calcul</th><th>Mesure</th><th>Écart</th>${TEACHER ? '<th title="Puissance réellement reçue (enseignant)">Réel</th>' : ''}</tr>`;
+    rows.forEach(r => {
+      const m = rc && rc.mesures ? rc.mesures[r.id] : undefined;
+      const v = P.recetteVerdict(r.theo, m, r.sens, r.over, seuils);
+      h += `<tr><td><a href="#" data-sel-dev="${r.id}">${esc(r.name)}</a></td><td class="num">${fmt(r.theo)}</td>
+        <td><input type="text" inputmode="decimal" class="rec-in" data-recette="${r.id}" value="${m !== undefined ? fmt(m) : ''}" placeholder="—" aria-label="Mesure de ${esc(r.name)} en dBm"></td>
+        <td class="num">${v ? (v.ecart > 0 ? '+' : '') + fmt(v.ecart) : '—'}</td>${TEACHER ? `<td class="num muted">${r.real === null ? 'LOS' : fmt(r.real)}</td>` : ''}</tr>
+        <tr class="rec-verdict"><td colspan="${cols}">${v ? `<span class="pill st-${v.code}">${esc(v.label)}</span>` : '<span class="muted small">À mesurer au photomètre (dBm)</span>'}</td></tr>`;
+    });
+    h += '</table>';
+    const f = x => String(x).replace('.', ',');
+    h += `<p class="muted small"><b>Écart</b> = perte mesurée − perte calculée = P<sub>calculée</sub> − P<sub>mesurée</sub>. ≤ 0 dB : conforme ; ≤ ${f(seuils.acceptable)} dB : acceptable (nettoyer) ; ≤ ${f(seuils.controle)} dB : à contrôler à l'OTDR ; au-delà : non conforme. Marge d'au moins ${f(seuils.marge)} dB au-dessus de la sensibilité. Une mesure meilleure de plus de ${f(seuils.suspect)} dB que le calcul est suspecte (référence du photomètre).</p></div>`;
     return h;
   }
 
@@ -1397,6 +1477,13 @@
     $$('[data-sel-link]', insp).forEach(a => a.addEventListener('click', e => { e.preventDefault(); select({ kind: 'link', id: a.dataset.selLink }); }));
     $$('[data-act]', insp).forEach(b => b.addEventListener('click', e => { e.preventDefault(); inspectorAction(b.dataset.act); }));
     const bp = $('#bilanPort', insp); if (bp) bp.addEventListener('change', () => { S.bilanPort = +bp.value; renderInspector(); });
+    $$('[data-recette]', insp).forEach(el => el.addEventListener('change', () => {
+      const id = el.dataset.recette, v = parseDbm(el.value), d = devById(id);
+      if (el.value.trim() && v === null) { toast('Mesure invalide : saisissez une puissance en dBm, par exemple −15,2.', 'err'); return renderInspector(); }
+      logJ('recette', `Fiche de recette : ${d ? d.props.name : id} = ${v === null ? 'effacée' : fmt(v) + ' dBm'}`, { id });
+      mutate(() => { const rc = ensureRecette(); if (v === null) delete rc.mesures[id]; else rc.mesures[id] = v; });
+    }));
+    
     const ol = $('#otdrLambda', insp); if (ol) ol.addEventListener('change', () => { S.otdr.lambda = +ol.value; if (S.otdr.devId) logJ('otdr', `OTDR vers ${devById(S.otdr.devId).props.name} (${S.otdr.lambda} nm)`, { id: S.otdr.devId }); runOtdr(true); renderInspector(); });
     const oL = $('#otdrLaunch', insp); if (oL) oL.addEventListener('change', () => { S.otdr.launch = +oL.value; S.otdr.x0 = S.otdr.x1 = null; runOtdr(true); renderInspector(); });
     $$('tr[data-ev]', insp).forEach(tr => tr.addEventListener('click', () => {
@@ -1654,6 +1741,7 @@
   function saveFile() {
     if (S.exam) return submitCopy();
     const data = { app: 'OptiSim FTTx Lab', author: 'Hassami COMPAORE', version: 1, savedAt: new Date().toISOString(), view: S.view, devices: S.topo.devices, links: S.topo.links };
+    if (S.topo.recette) data.recette = S.topo.recette;
     download(JSON.stringify(data, null, 2), `topologie-optisim-${new Date().toISOString().slice(0, 10)}.json`);
     toast('Topologie exportée en JSON.', 'ok');
   }
@@ -1855,6 +1943,73 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Disposition ajustable : panneaux latéraux et fenêtres flottantes    */
+  /* ------------------------------------------------------------------ */
+  const UI_KEY = 'optisim-disposition';
+  let ui = {};
+  function saveUi() { store.set(UI_KEY, JSON.stringify(ui)); }
+  function applyUi() {
+    const lay = $('#layout');
+    ['pal', 'insp'].forEach(k => { if (ui[k]) lay.style.setProperty(`--${k}-w`, ui[k] + 'px'); else lay.style.removeProperty(`--${k}-w`); });
+    [['instrument', instr], ['tpPanel', $('#tpPanel')]].forEach(([k, el]) => {
+      const o = ui[k];
+      el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.width = el.style.height = '';
+      if (!o) return;
+      if (o.left !== undefined) Object.assign(el.style, { left: o.left + 'px', top: o.top + 'px', right: 'auto', bottom: 'auto' });
+      if (o.width) el.style.width = o.width + 'px';
+      if (o.height) el.style.height = o.height + 'px';
+    });
+  }
+  function bindLayout() {
+    try { ui = JSON.parse(store.get(UI_KEY) || '{}') || {}; } catch (e) { ui = {}; }
+    applyUi();
+    // Largeur de la boîte à outils et de l'inspecteur
+    $$('.panel-resizer').forEach(h => {
+      const k = h.dataset.resize;
+      h.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        const lay = $('#layout').getBoundingClientRect();
+        h.setPointerCapture(e.pointerId); h.classList.add('active');
+        const move = ev => {
+          const w = k === 'pal' ? ev.clientX - lay.left : lay.right - ev.clientX;
+          ui[k] = Math.round(Math.max(170, Math.min(k === 'pal' ? 460 : 640, w)));
+          applyUi();
+        };
+        const up = () => { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.classList.remove('active'); saveUi(); if (S.tab === 'otdr') drawOtdr(); };
+        h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
+      });
+      h.addEventListener('dblclick', () => { delete ui[k]; applyUi(); saveUi(); if (S.tab === 'otdr') drawOtdr(); });
+    });
+    // Fenêtres flottantes : déplacées par leur titre, redimensionnées par le coin (CSS resize)
+    [['instrument', instr], ['tpPanel', $('#tpPanel')]].forEach(([k, el]) => {
+      el.addEventListener('pointerdown', e => {
+        const head = e.target.closest('.fc-head');
+        if (!head || e.target.closest('button, input, select, a, label')) return;
+        const st = $('#stage').getBoundingClientRect(), r = el.getBoundingClientRect();
+        const ox = e.clientX - r.left, oy = e.clientY - r.top;
+        el.setPointerCapture(e.pointerId); el.classList.add('dragging');
+        const move = ev => {
+          const x = Math.round(Math.min(Math.max(0, ev.clientX - st.left - ox), st.width - 80));
+          const y = Math.round(Math.min(Math.max(0, ev.clientY - st.top - oy), st.height - 40));
+          ui[k] = Object.assign({}, ui[k], { left: x, top: y });
+          Object.assign(el.style, { left: x + 'px', top: y + 'px', right: 'auto', bottom: 'auto' });
+        };
+        const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.classList.remove('dragging'); saveUi(); };
+        el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+      });
+      el.addEventListener('dblclick', e => { if (e.target.closest('.fc-head') && !e.target.closest('button')) { delete ui[k]; applyUi(); saveUi(); } });
+      // Taille choisie avec la poignée du coin (redimensionnement CSS : style.width / style.height)
+      if (window.ResizeObserver) new ResizeObserver(() => {
+        if (el.hidden || (!el.style.width && !el.style.height)) return;
+        const w = parseFloat(el.style.width) || undefined, h = parseFloat(el.style.height) || undefined;
+        const o = ui[k] || {};
+        if (o.width === w && o.height === h) return;
+        ui[k] = Object.assign({}, o, { width: w, height: h }); saveUi();
+      }).observe(el);
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Démarrage                                                           */
   /* ------------------------------------------------------------------ */
   function init() {
@@ -1869,6 +2024,7 @@
     else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.dataset.theme = 'light';
     buildPalette();
     bindGlobal();
+    bindLayout();
     let restored = false;
     const saved = store.get(STORE_KEY);
     if (saved) {

@@ -75,6 +75,7 @@
    */
   function makeSujet(topo, meta) {
     const t = { devices: clone(topo.devices), links: clone(topo.links) };
+    if (topo.recette) t.recette = Object.assign(clone(topo.recette), { mesures: {} }); // fiche de recette vierge
     t.devices.concat(t.links).forEach(o => { if (o.fault && o.fault.type) o.fault.hidden = true; if (o.cfgFault) o.cfgFault.hidden = true; });
     const exam = {
       id: newId(),
@@ -103,7 +104,7 @@
       eleve: { nom: String(eleve.nom || '').trim(), prenom: String(eleve.prenom || '').trim(), classe: String(eleve.classe || '').trim() },
       renduLe: new Date().toISOString(),
       exam,
-      topo: { devices: clone(topo.devices), links: clone(topo.links) },
+      topo: Object.assign({ devices: clone(topo.devices), links: clone(topo.links) }, topo.recette ? { recette: clone(topo.recette) } : {}),
       journal: clone(journal || [])
     };
     return { app: APP, kind: 'copie', version: 1, title: exam.title, data: encode(copie) };
@@ -169,6 +170,19 @@
     });
     const nSvc = services.filter(s => s.ok).length;
 
+    // Fiche de recette (mode réaliste) : mesures saisies par l'élève comparées au réel
+    let recette = null;
+    if (fin.recette) {
+      const P = global.OptiPhysics, SE = Object.assign({}, P.RECETTE_SEUILS, fin.recette.seuils || {});
+      recette = P.recetteRows(fin).map(r => {
+        const m = fin.recette.mesures && fin.recette.mesures[r.id] !== undefined ? +fin.recette.mesures[r.id] : null;
+        const vs = P.recetteVerdict(r.theo, m, r.sens, r.over, SE);
+        const vr = r.real === null ? { label: 'Non conforme : LOS' } : P.recetteVerdict(r.theo, r.real, r.sens, r.over, SE);
+        return { name: r.name, theo: r.theo, saisie: m, reel: r.real, conclusion: vs ? vs.label : null, attendu: vr ? vr.label : null,
+          juste: m !== null && r.real !== null && Math.abs(m - r.real) <= 0.1 };
+      });
+    }
+
     // Méthode : chaque correction réussie doit être précédée d'une mesure (pannes physiques)
     // ou d'une consultation du diagnostic (pannes de configuration) depuis l'action précédente.
     const J = copie.journal || [];
@@ -204,7 +218,7 @@
 
     return {
       eleve: copie.eleve, renduLe: copie.renduLe, title: copie.exam.title, examId: copie.exam.id,
-      bareme: B, faults, nRep, services, nSvc, units, methodical, inutiles,
+      bareme: B, faults, nRep, services, nSvc, units, methodical, inutiles, recette,
       mesures: J.filter(e => MEASURES.has(e.k)).length,
       pts, max, note, dureeMin, journal: J
     };

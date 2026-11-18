@@ -189,6 +189,15 @@
     return m.t.json();
   }
 
+  /** Exemple Recette : immeuble en mode réaliste, un logement avec un défaut caché. */
+  function exRecette() {
+    const m = mduTopo(true, { name: 'Résidence Les Platanes (R+3)', splitter: '1:32' });
+    m.t.get(m.pto[2]).fault = { type: 'dirty', hidden: true };
+    const j = m.t.json();
+    j.recette = { actif: true, graine: 2026, seuils: { acceptable: 0.5, controle: 1, marge: 3, suspect: 2 }, mesures: {} };
+    return j;
+  }
+
   function exFTTB() {
     const t = new Topo();
     const olt = t.dev('olt', 30, 760, { name: 'OLT NRO' });
@@ -458,6 +467,7 @@
   const EXAMPLES = [
     { id: 'ex-fttb', title: 'Exemple FTTB : ONU en pied d\'immeuble + Ethernet', desc: 'La fibre s\'arrête au sous-sol (ONU d\'immeuble) ; la distribution des étages se fait en cuivre Cat6 (≤ 100 m). Modifiez une longueur Cat6 à 120 m pour observer la limite.', topology: exFTTB },
     { id: 'ex-campus', title: 'Exemple Campus : liaison multimode OM3 entre deux bâtiments', desc: 'Switchs SFP 850 nm multimode, ODF LC/UPC et dorsale OM3 de 250 m.', topology: exCampus },
+    { id: 'ex-recette', title: 'Exemple Recette : réception d\'un immeuble (mesures réalistes)', desc: 'Résidence R+3 en mode recette réaliste : chaque composant a sa propre perte, comme sur le terrain. Mesurez chaque ONT au photomètre, saisissez les valeurs dans la fiche de recette (onglet Bilan optique, sans sélection), comparez au calcul théorique et concluez. Un logement n\'est pas conforme : localisez le défaut à l\'OTDR.', topology: exRecette },
     { id: 'ex-ftth', title: 'Démo complète : villa FTTH en service', desc: 'Topologie du TP 2 entièrement câblée.', topology: () => tp2(true) },
     { id: 'ex-services', title: 'Exemple Services : FTTH triple play configuré', desc: 'Routeur de collecte (PPPoE), OLT avec ONT autorisée, Box et 3 appareils : Internet, TV et Téléphonie en service. Explorez l\'onglet « Configuration », puis introduisez une erreur (VLAN, mot de passe, DHCP…) pour voir le diagnostic.', topology: () => tp10(true) },
     { id: 'ex-aon', title: 'Exemple Services : Active Ethernet (AON) entreprise', desc: 'Switch AON relié au routeur de collecte, fibre dédiée sur le port SFP 3, routeur d\'entreprise et adressage IP statique.', topology: () => tp11(true) }
@@ -488,6 +498,9 @@
 <li>Les ports sont attribués automatiquement (premier port libre compatible). Vous pouvez les changer dans l'inspecteur du câble.</li>
 <li>Les ports d'<b>entrée</b> sont à gauche des équipements, les ports de <b>sortie</b> à droite. Le simulateur représente le <b>sens descendant</b> (émetteur → récepteur).</li>
 </ul>
+<h4>Adapter l'écran</h4>
+<ul><li>Tirez le <b>bord intérieur</b> de la boîte à outils ou de l'inspecteur pour les élargir (double-clic : largeur par défaut).</li>
+<li>Les fenêtres flottantes (photomètre, VFL, consignes du TP) se <b>déplacent par leur titre</b> et se <b>redimensionnent par leur coin</b> (double-clic sur le titre : position initiale). La disposition est mémorisée sur le poste.</li></ul>
 <h4>Raccourcis</h4>
 <table class="doc-table"><tr><td><kbd>Suppr</kbd></td><td>Supprimer la sélection</td></tr><tr><td><kbd>Échap</kbd></td><td>Annuler l'outil en cours</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Annuler</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Sauvegarder (JSON)</td></tr><tr><td><kbd>F</kbd></td><td>Recadrer la vue sur le réseau</td></tr></table>
 <h4>Badges de statut</h4>
@@ -500,10 +513,10 @@
 <ul><li>Réglez le nombre d'étages (R+1 à R+12), la présence d'un sous-sol et la <b>hauteur d'étage</b> (3 m par défaut).</li>
 <li>Le bâtiment est découpé en bandes horizontales (Sous-sol, RDC, Étage 1…). La bande verticale en pointillés représente la <b>gaine technique</b> (colonne montante).</li>
 <li>Déposez les équipements dans l'étage voulu : l'inspecteur affiche l'étage détecté.</li>
-<li>Redimensionnez un bâtiment avec la poignée en bas à droite. Déplacer un bâtiment déplace tout son contenu.</li></ul>
+<li>Redimensionnez un bâtiment à la souris : sélectionnez-le, puis tirez l'une des poignées carrées (coins et côtés). Pour un immeuble, le bas règle la hauteur des étages. Déplacer un bâtiment déplace tout son contenu.</li></ul>
 <h4>Compartimenter : logements, bureaux, pièces</h4>
 <p>L'élément <b>« Local »</b> (boîte à outils, rubrique Bâtiments) découpe un bâtiment comme sur un vrai plan.</p>
-<ul><li>Glissez un local <b>dans</b> le bâtiment ou dans l'étage voulu, puis redimensionnez-le avec sa poignée en bas à droite.</li>
+<ul><li>Glissez un local <b>dans</b> le bâtiment ou dans l'étage voulu, puis ajustez-le avec les poignées de ses coins et de ses côtés.</li>
 <li>Dans l'inspecteur, donnez-lui un <b>nom</b> (« Appt 301 », « Comptabilité », « Séjour ») et un <b>type</b>. Chaque type a sa couleur :
 <table class="doc-table"><tr><th>Type</th><th>Exemples</th></tr>
 <tr><td>Logement</td><td>appartement d'un immeuble</td></tr><tr><td>Bureau</td><td>service d'une entreprise, accueil</td></tr>
@@ -573,6 +586,31 @@
 <li>Usage : continuité, identification d'une fibre sur un palier, détection de défaut proche.</li></ul>
 <p class="warn">Sécurité : ne jamais regarder directement une fibre ou un connecteur, même avec un VFL.</p>` },
 
+    { id: 'recette', group: 'Fiches d\'ingénierie FTTx', title: 'Recette : calcul, mesure et conformité', html: `
+<p>Les valeurs du simulateur sont des <b>valeurs de référence</b> : celles des fiches techniques et du calcul de bilan. Elles servent à <b>dimensionner</b> une liaison, pas à la déclarer conforme.</p>
+<table class="doc-table"><tr><th>Élément</th><th>Référence (calcul)</th><th>Sur le terrain</th></tr>
+<tr><td>Fibre G.652D</td><td>0,35 / 0,25 / 0,22 dB/km (1310 / 1490 / 1550 nm)</td><td>souvent un peu meilleure</td></tr>
+<tr><td>Épissure fusion</td><td>0,05 dB</td><td>0,01 à 0,1 dB</td></tr>
+<tr><td>Connecteur</td><td>0,5 dB (valeur pessimiste)</td><td>souvent 0,2 à 0,3 dB s'il est propre</td></tr>
+<tr><td>Coupleur 1:32</td><td>17,2 dB</td><td>quelques dixièmes de dB d'écart</td></tr>
+<tr><td>ONT GPON B+</td><td colspan="2">réception entre −27 et −8 dBm ; viser au moins 3 dB de marge</td></tr></table>
+<h4>Juger une liaison réelle</h4>
+<ol><li><b>Calculer</b> le bilan théorique avec les valeurs de référence (onglet Bilan optique).</li>
+<li><b>Mesurer</b> la puissance reçue au photomètre.</li>
+<li><b>Comparer</b> : écart = perte mesurée − perte calculée = P<sub>calculée</sub> − P<sub>mesurée</sub>.</li></ol>
+<table class="doc-table"><tr><th>Écart</th><th>Conclusion (seuils par défaut)</th></tr>
+<tr><td>≤ 0 dB</td><td><b>Conforme</b> : cas normal, le réseau réel est meilleur que le calcul</td></tr>
+<tr><td>0 à 0,5 dB</td><td><b>Acceptable</b> : nettoyer et contrôler les connecteurs</td></tr>
+<tr><td>0,5 à 1 dB</td><td><b>À contrôler</b> à l'OTDR</td></tr>
+<tr><td>plus de 1 dB</td><td><b>Non conforme</b> : un défaut est à localiser (courbure, épissure, connecteur sale)</td></tr>
+<tr><td>mesure meilleure de plus de 2 dB</td><td><b>Suspecte</b> : vérifier la référence du photomètre</td></tr></table>
+<p>La puissance doit aussi rester dans la fenêtre du récepteur, avec au moins 3 dB de marge au-dessus de la sensibilité. Les seuils exacts sont fixés par le <b>cahier des charges de recette</b> de l'opérateur : ceux du simulateur sont des repères pédagogiques.</p>
+<h4>Dans le simulateur</h4>
+<ul><li>En <b>mode recette réaliste</b>, chaque composant a sa propre perte, tirée au hasard autour de la valeur de référence (souvent un peu meilleure), comme sur le terrain. Les instruments mesurent ce réseau réel ; le bilan affiche toujours le calcul théorique.</li>
+<li>La <b>fiche de recette</b> (onglet Bilan optique, sans sélection) liste chaque récepteur : saisissez la mesure du photomètre, l'écart et la conclusion s'affichent. Les mesures sont enregistrées avec le fichier et dans la copie d'examen.</li>
+<li>Pour s'entraîner : <b>Exemples &amp; TP → Exemple Recette</b>.</li></ul>
+` },
+
     { id: 'equip', group: 'Fiches d\'ingénierie FTTx', title: 'ODF, PMI, PBO intérieur / extérieur', html: `
 <table class="doc-table"><tr><th>Élément</th><th>Où ?</th><th>Rôle</th></tr>
 <tr><td><b>ODF</b></td><td>NRO, local technique, sous-répartiteur d'étage</td><td>Terminaison des câbles (épissures pigtails) et brassage par jarretières. Port à port.</td></tr>
@@ -600,7 +638,18 @@
 <tr><td>Multimode <b>OM4</b> (violet)</td><td>Dorsale ≤ 400 m @ 10G</td><td>2,5 dB/km à 850 nm · 0,8 à 1300</td></tr></table>
 <p><b>LSZH</b> (Low Smoke Zero Halogen) : gaine obligatoire dans les bâtiments (faible fumée, pas de gaz halogéné en cas d'incendie).</p>
 <p><b>Drop</b> : câble de branchement extérieur renforcé (aérien ou souterrain).</p>
-<p>Code couleur des câbles dans le simulateur : <span class="chip" style="background:#eab308">SMF</span> <span class="chip" style="background:#78716c">Drop</span> <span class="chip" style="background:#e2e8f0;color:#111">LSZH</span> <span class="chip" style="background:#f97316">Colonne</span> <span class="chip" style="background:#22d3ee;color:#111">OM3</span> <span class="chip" style="background:#a855f7">OM4</span> <span class="chip apc">Jarretière APC</span> <span class="chip upc">Jarretière UPC</span> <span class="chip" style="background:#60a5fa">Cat6</span></p>` },
+<p>Code couleur des câbles dans le simulateur : <span class="chip" style="background:#eab308">SMF</span> <span class="chip" style="background:#78716c">Drop</span> <span class="chip" style="background:#e2e8f0;color:#111">LSZH</span> <span class="chip" style="background:#f97316">Colonne</span> <span class="chip" style="background:#22d3ee;color:#111">OM3</span> <span class="chip" style="background:#a855f7">OM4</span> <span class="chip apc">Jarretière APC</span> <span class="chip upc">Jarretière UPC</span> <span class="chip" style="background:#60a5fa">Cat6</span></p>
+<h4>Quel câble entre quels équipements ?</h4>
+<table class="doc-table"><tr><th>Liaison</th><th>Câble</th></tr>
+<tr><td>OLT / switch → ODF, ODF → ODF dans une baie, PTO → ONT</td><td><b>Jarretière</b> (1 à 5 m, brassage) : un équipement actif se branche toujours par une jarretière</td></tr>
+<tr><td>NRO (ODF) → SRO → PBO extérieur ; NRO → PMI d'un immeuble</td><td><b>Câble de transport / distribution G.652D</b> (extérieur, multi-fibres)</td></tr>
+<tr><td>PBO extérieur → PTO d'une maison</td><td><b>Drop G.657A2</b> (branchement aérien, façade ou souterrain)</td></tr>
+<tr><td>PMI → PBO d'étage ; PBO d'étage → PBO de l'étage suivant</td><td><b>Colonne montante</b> (verticale, entre étages)</td></tr>
+<tr><td>PBO d'étage → PTO d'un logement (même étage)</td><td><b>Câble intérieur LSZH</b> (horizontal, dans le bâtiment)</td></tr>
+<tr><td>Switchs à SFP multimode (850 nm), courte distance</td><td><b>Multimode OM3 / OM4</b> (jamais sur un réseau FTTH)</td></tr>
+<tr><td>ONT / Box / switch → PC, téléphone, décodeur</td><td><b>Cat6</b> (≤ 100 m)</td></tr>
+<tr><td>Routeur de collecte → OLT ou switch AON</td><td><b>Lien de collecte 10 GbE</b></td></tr></table>
+` },
 
     { id: 'budget', group: 'Fiches d\'ingénierie FTTx', title: 'Calcul du bilan optique', html: `
 <p class="formula">P<sub>reçue</sub> (dBm) = P<sub>émise</sub> (dBm) − Σ pertes (dB)</p>

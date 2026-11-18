@@ -136,7 +136,7 @@ body.mode-test .segmented button.active[data-mode="test"] { background: #16a34a;
 .segmented.small button { padding: 3px 8px; font-size: 12px; }
 
 /* ------------------------------ Mise en page ------------------------------ */
-.layout { display: grid; grid-template-columns: 252px 1fr 370px; min-height: 0; }
+.layout { --pal-w: 252px; --insp-w: 370px; display: grid; grid-template-columns: var(--pal-w) 1fr var(--insp-w); min-height: 0; position: relative; }
 .panel { background: var(--panel); min-height: 0; overflow: auto; }
 .palette { border-right: 1px solid var(--border); padding: 8px; }
 .inspector { border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
@@ -460,12 +460,12 @@ table { border-collapse: collapse; width: 100%; }
 /* ------------------------------ Responsive ------------------------------ */
 @media (max-width: 1280px) {
   .brand small { display: none; }
-  .layout { grid-template-columns: 220px 1fr 330px; }
+  .layout { --pal-w: 220px; --insp-w: 330px; }
 }
 @media (max-width: 1050px) {
   .topbar { overflow-x: auto; }
   .brand div { display: none; }
-  .layout { grid-template-columns: 190px 1fr 290px; }
+  .layout { --pal-w: 190px; --insp-w: 290px; }
   .legend { display: none; }
 }
 @media (max-width: 760px) {
@@ -476,6 +476,7 @@ table { border-collapse: collapse; width: 100%; }
   .inspector { border-left: 0; border-top: 1px solid var(--border); }
   .split { grid-template-columns: 1fr; grid-template-rows: 180px 1fr; }
   .tp-panel, .instrument { width: calc(100% - 24px); }
+  .panel-resizer { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .flow, .vfl-light, .vfl-leak .halo, .led.blink, .red-dot { animation: none; }
@@ -500,3 +501,31 @@ body.exam-locked .pal-item[data-type], body.exam-locked .pal-item[data-cable] { 
 .room .room-label { font-size: 11px; font-weight: 700; }
 .room .room-kind { font-size: 9px; fill: var(--muted); }
 .room:hover .room-body { fill-opacity: .12; }
+
+/* ---------- Choix du câble (version enseignant) ---------- */
+.link.cable-warn .link-outline { stroke: #f59e0b; stroke-width: 9; stroke-dasharray: 6 5; opacity: .8; }
+.cable-tips .alert { margin-bottom: 6px; }
+
+/* ---------- Poignées de redimensionnement ---------- */
+.handle.sq { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
+.h-n, .h-s { cursor: ns-resize; } .h-e, .h-w { cursor: ew-resize; }
+.h-ne, .h-sw { cursor: nesw-resize; } .h-nw, .h-se { cursor: nwse-resize; }
+
+/* ---------- Panneaux ajustables à la souris ---------- */
+.panel-resizer { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 6; }
+.panel-resizer.l { left: calc(var(--pal-w) - 4px); }
+.panel-resizer.r { right: calc(var(--insp-w) - 4px); }
+.panel-resizer:hover, .panel-resizer.active { background: linear-gradient(90deg, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px); }
+.float-card { resize: both; overflow: auto; min-width: 220px; min-height: 60px; max-width: calc(100% - 24px); }
+.float-card .fc-head { cursor: move; user-select: none; }
+.float-card.dragging { opacity: .9; box-shadow: 0 12px 30px #0006; }
+
+/* ---------- Fiche de recette ---------- */
+.recette-table td, .recette-table th { padding: 4px 5px; font-size: 12px; vertical-align: middle; }
+.recette-table .rec-in { width: 74px; padding: 3px 5px; font: inherit; }
+.recette-table .pill { white-space: normal; line-height: 1.25; }
+.recette-ens { border: 1px dashed var(--border); border-radius: 8px; padding: 8px; margin: 6px 0 10px; }
+.alert.info { background: color-mix(in srgb, var(--accent) 10%, transparent); border-left: 3px solid var(--accent); }
+.recette-table tr.rec-verdict td { padding-top: 0; border-top: 0; }
+.recette-table tr:not(.rec-verdict) td { border-bottom: 0; }
+.recette-table th:nth-child(n+2), .recette-table td.num { text-align: right; }
