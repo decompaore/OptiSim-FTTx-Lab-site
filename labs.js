@@ -814,6 +814,7 @@
 <span>14 exercices : vocabulaire, dB et dBm, atténuation, coupleurs, bilan d'une villa, colonne montante, statut d'un ONT, dimensionnement, APC/UPC, OTDR, diagnostic, adressage IP, débit GPON partagé, diagnostic d'un service.</span></a>
 </div>
 <p class="muted">Cliquez sur un aperçu pour ouvrir le livret dans un nouvel onglet.</p>
+
 <h4>Nouveautés : équipements actifs et services</h4>
 <p>Les livrets couvrent maintenant la <b>couche service</b> (OLT, routeur de collecte, switch AON, Box, adressage IP) et les <b>pannes de configuration</b>. Accès direct aux nouvelles pages :</p>
 <div class="print-cards">

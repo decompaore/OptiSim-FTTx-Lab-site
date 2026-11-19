@@ -1843,6 +1843,23 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
+  /**
+   * Enregistre un fichier avec la boîte « Enregistrer sous » (Chrome, Edge) : le dossier
+   * choisi (ex. dossier partagé de la salle) est retenu pour la fois suivante grâce à `id`.
+   * Sinon, téléchargement classique. Renvoie 'dossier', 'telechargement' ou null (annulé).
+   */
+  async function saveAs(text, name, type = 'application/json', id = 'optisim') {
+    if (window.showSaveFilePicker) {
+      try {
+        const ext = '.' + name.split('.').pop();
+        const h = await window.showSaveFilePicker({ id, suggestedName: name, types: [{ description: ext === '.csv' ? 'Tableau CSV' : 'Fichier OptiSim', accept: { [type]: [ext] } }] });
+        const w = await h.createWritable(); await w.write(text); await w.close();
+        return 'dossier';
+      } catch (e) { if (e && e.name === 'AbortError') return null; /* autre erreur : téléchargement */ }
+    }
+    download(text, name, type);
+    return 'telechargement';
+  }
   const slug = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'sans-nom';
   function saveFile() {
     if (S.exam) return submitCopy();
@@ -1955,17 +1972,18 @@
     if (S.exam.eleve && !prev.nom) { const w = S.exam.eleve.split(/\s+/); prev = { nom: w[0] || '', prenom: w.slice(1).join(' ') }; }
     openModal('Rendre ma copie', `<p>Votre copie contient la topologie dans son état actuel et le journal de vos actions.</p>
       <div class="form-grid"><label>Nom<input type="text" id="cpNom" value="${esc(prev.nom || '')}" autocomplete="off"></label><label>Prénom<input type="text" id="cpPrenom" value="${esc(prev.prenom || '')}" autocomplete="off"></label><label>Classe<input type="text" id="cpClasse" value="${esc(prev.classe || '')}" autocomplete="off"></label></div>
-      <p class="muted small">Le fichier « copie-….json » est enregistré dans le dossier Téléchargements : remettez-le à votre enseignant (clé USB, ENT…). Vous pouvez continuer puis rendre une nouvelle copie : l'enseignant corrige la plus récente.</p>`, [
+      <p class="muted small">Choisissez le <b>dossier de dépôt</b> indiqué par votre enseignant (par exemple <code>Copies\\votre classe</code> sur le partage de la salle) : il sera proposé automatiquement la fois suivante. Selon le navigateur, le fichier peut aussi arriver dans Téléchargements : remettez-le alors à votre enseignant (clé USB, ENT…). Vous pouvez continuer puis rendre une nouvelle copie : l'enseignant corrige la plus récente.</p>`, [
       { label: 'Annuler', action: closeModal },
-      { label: 'Enregistrer ma copie', primary: true, action: () => {
+      { label: 'Enregistrer ma copie', primary: true, action: async () => {
         const eleve = { nom: $('#cpNom').value.trim(), prenom: $('#cpPrenom').value.trim(), classe: $('#cpClasse').value.trim() };
         if (!eleve.nom) { toast('Indiquez votre nom.', 'err'); return; }
         store.set('optisim-eleve', JSON.stringify(eleve));
         logJ('rendu', 'Copie rendue');
         const file = X.makeCopie(S.exam, S.topo, S.journal, eleve);
-        download(JSON.stringify(file), `copie-${slug(eleve.nom)}-${slug(eleve.prenom)}-${slug(S.exam.title)}.json`);
+        const ou = await saveAs(JSON.stringify(file), `copie-${slug(eleve.nom)}-${slug(eleve.prenom)}-${slug(S.exam.title)}.json`, 'application/json', 'optisim-copies');
+        if (!ou) return toast('Enregistrement annulé : votre copie n\'est pas encore rendue.', 'warn');
         closeModal();
-        toast('Copie enregistrée dans Téléchargements. Remettez-la à votre enseignant.', 'ok');
+        toast(ou === 'dossier' ? 'Copie enregistrée dans le dossier choisi. Vous pouvez la rendre de nouveau plus tard si besoin.' : 'Copie enregistrée dans Téléchargements. Remettez-la à votre enseignant.', 'ok');
       } }
     ]);
     setTimeout(() => { const i = $('#cpNom'); if (i && !i.value) i.focus(); }, 30);
