@@ -46,7 +46,7 @@
     services: null,     // résultat de OptiServices.analyze()
     vfl: null,           // {devId, dir, result}
     pm: null,            // {devId, key}
-    otdr: { devId: null, lambda: 1310, launch: 500, result: null, x0: null, x1: null, hover: null },
+    otdr: { devId: null, lambda: 1310, launch: 500, dir: 'aller', result: null, x0: null, x1: null, hover: null },
     tab: 'props',
     bilanPort: null,
     lab: null,           // {id, checks:[]}
@@ -81,7 +81,8 @@
   function normRecette(r) {
     const mesures = {};
     Object.entries((r && r.mesures) || {}).forEach(([k, v]) => { if (Number.isFinite(+v)) mesures[k] = +v; });
-    return { actif: !!(r && r.actif), graine: +(r && r.graine) || 1, seuils: Object.assign({}, P.RECETTE_SEUILS, (r && r.seuils) || {}), mesures };
+    const tirs = Array.isArray(r && r.tirs) ? r.tirs.filter(x => x && x.cible && Array.isArray(x.events)).slice(-60) : [];
+    return { actif: !!(r && r.actif), graine: +(r && r.graine) || 1, seuils: Object.assign({}, P.RECETTE_SEUILS, (r && r.seuils) || {}), mesures, tirs };
   }
   function normalize(topo) {
     const t = { devices: [], links: [] };
@@ -1287,15 +1288,81 @@
     });
     h += '</table>';
     const f = x => String(x).replace('.', ',');
+    h += recetteOtdrHTML(rows);
     h += `<p class="muted small"><b>Écart</b> = perte mesurée − perte calculée = P<sub>calculée</sub> − P<sub>mesurée</sub>. ≤ 0 dB : conforme ; ≤ ${f(seuils.acceptable)} dB : acceptable (nettoyer) ; ≤ ${f(seuils.controle)} dB : à contrôler à l'OTDR ; au-delà : non conforme. Marge d'au moins ${f(seuils.marge)} dB au-dessus de la sensibilité. Une mesure meilleure de plus de ${f(seuils.suspect)} dB que le calcul est suspecte (référence du photomètre).</p></div>`;
     return h;
+  }
+
+  /** Fiche de recette : tirs OTDR enregistrés par récepteur et longueur d'onde. */
+  function recetteOtdrHTML(rows) {
+    const rc = S.topo.recette, tirs = (rc && rc.tirs) || [];
+    let h = '<h4 class="sub">Recette OTDR (tirs bidirectionnels)</h4>';
+    if (!tirs.length) h += '<p class="muted small">Aucun tir enregistré. Onglet OTDR : faites un tir <b>aller</b> puis un tir <b>retour</b> sur chaque récepteur, et enregistrez-les.</p>';
+    else {
+      h += '<table class="cfg-table recette-table"><tr><th>Récepteur</th><th>λ</th><th>Aller</th><th>Retour</th><th>Événements</th></tr>';
+      const keys = [];
+      tirs.forEach(x => { const k = x.cible + '|' + x.lambda; if (!keys.includes(k)) keys.push(k); });
+      keys.forEach(k => {
+        const [cible, l] = k.split('|'), lambda = +l, a = savedShot(cible, lambda, 'aller'), b = savedShot(cible, lambda, 'retour');
+        const bi = a && b ? P.otdrBidir(a, b, rc.seuils) : null;
+        h += `<tr><td>${esc((a || b).nom)}</td><td class="num">${lambda}</td><td>${a ? '✓' : '—'}</td><td>${b ? '✓' : '—'}</td><td>${bi ? (bi.conforme ? '<span class="pill st-ok">conformes</span>' : '<span class="pill st-los">hors seuil</span>') : '<span class="muted small">incomplet</span>'}</td></tr>`;
+      });
+      h += '</table>';
+    }
+    h += '<div class="row"><button class="btn small" id="recRapport" title="Rapport de recette imprimable (photomètre et OTDR)">Rapport de recette (imprimer)</button></div>';
+    return h;
+  }
+  /** Rapport de recette imprimable : mesures au photomètre et analyse OTDR bidirectionnelle. */
+  function recetteRapport() {
+    const rc = S.topo.recette || normRecette({}), seuils = Object.assign({}, P.RECETTE_SEUILS, rc.seuils);
+    const rows = P.recetteRows(S.topo);
+    const blds = S.topo.devices.filter(d => isContainer(d) && !isRoom(d)).map(d => d.props.name).join(', ') || '—';
+    let prev = {}; try { prev = JSON.parse(store.get('optisim-eleve') || '{}'); } catch (e) { prev = {}; }
+    const who = [prev.prenom, prev.nom].filter(Boolean).join(' ');
+    let nOk = 0, nKo = 0, nMiss = 0;
+    let h = `<h1>Rapport de recette optique</h1><p class="small">Réseau : <b>${esc(blds)}</b> · ${esc(new Date().toLocaleString('fr-FR'))} · Technicien : ${who ? esc(who) : '..............................'}${rc.actif ? ' · mesures sur réseau réel (mode recette réaliste)' : ''}</p>`;
+    h += '<h2>1. Puissance reçue (photomètre)</h2><table><tr><th>Récepteur</th><th>Emplacement</th><th>Calcul (dBm)</th><th>Mesure (dBm)</th><th>Écart (dB)</th><th>Conclusion</th></tr>';
+    rows.forEach(r => {
+      const m = rc.mesures[r.id], v = P.recetteVerdict(r.theo, m, r.sens, r.over, seuils);
+      if (!v) nMiss++; else if (v.code === 'ok') nOk++; else nKo++;
+      h += `<tr><td>${esc(r.name)}</td><td>${esc(locationText(devById(r.id)) || '—')}</td><td class="num">${fmt(r.theo)}</td><td class="num">${m === undefined ? '—' : fmt(m)}</td><td class="num">${v ? (v.ecart > 0 ? '+' : '') + fmt(v.ecart) : '—'}</td><td class="${v ? 'st-' + v.code : ''}">${v ? esc(v.label) : 'non mesuré'}</td></tr>`;
+    });
+    h += '</table>';
+    h += '<h2>2. Réflectométrie (OTDR bidirectionnel)</h2>';
+    const keys = [];
+    (rc.tirs || []).forEach(x => { const k = x.cible + '|' + x.lambda; if (!keys.includes(k)) keys.push(k); });
+    if (!keys.length) h += '<p>Aucun tir enregistré.</p>';
+    keys.forEach(k => {
+      const [cible, l] = k.split('|'), lambda = +l, a = savedShot(cible, lambda, 'aller'), b = savedShot(cible, lambda, 'retour');
+      h += `<h3>${esc((a || b).nom)} — ${lambda} nm</h3>`;
+      if (!a || !b) { nMiss++; h += `<p>Tir ${a ? 'retour' : 'aller'} manquant : analyse bidirectionnelle impossible.</p>`; return; }
+      const bi = P.otdrBidir(a, b, seuils);
+      bi.rows.forEach(r => { if (r.ok) nOk++; else nKo++; });
+      h += bidirTableHTML(bi).replace(/class="cfg-table bidir"/, '') + `<p class="small">Longueur ${fmtLen(bi.longueur)} · perte totale aller ${fmt(bi.totalAller)} dB, retour ${fmt(bi.totalRetour)} dB.</p>`;
+    });
+    const f = x => String(x).replace('.', ',');
+    h += `<h2>3. Seuils appliqués</h2><p class="small">Photomètre : écart ≤ 0 conforme, ≤ ${f(seuils.acceptable)} dB acceptable, ≤ ${f(seuils.controle)} dB à contrôler, au-delà non conforme ; marge ≥ ${f(seuils.marge)} dB ; mesure suspecte si meilleure de plus de ${f(seuils.suspect)} dB. OTDR (moyenne aller-retour) : épissure ≤ ${f(seuils.epissure)} dB, connecteur ≤ ${f(seuils.connecteur)} dB, coupleur ± ${f(seuils.coupleur)} dB autour de la valeur nominale.</p>`;
+    h += `<h2>4. Conclusion</h2><p><b>${nKo ? 'Réseau NON CONFORME' : nMiss ? 'Recette incomplète' : 'Réseau CONFORME'}</b> — ${nOk} point(s) conforme(s), ${nKo} hors seuil, ${nMiss} manquant(s).</p><p class="small">Visa du technicien : .................................... Visa du responsable : ....................................</p>`;
+    printDoc('Rapport de recette — OptiSim FTTx Lab', h);
+    logJ('recette', 'Rapport de recette imprimé');
+  }
+  /** Impression d'un document (nouvelle fenêtre, styles d'impression). */
+  function printDoc(title, html) {
+    const w = window.open('', '_blank');
+    if (!w) return toast('Fenêtre bloquée par le navigateur : autorisez les fenêtres surgissantes.', 'err');
+    w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+      body{font:12px/1.45 system-ui,sans-serif;color:#111;margin:14mm}h1{font-size:19px;margin:0 0 4px}h2{font-size:14px;margin:16px 0 6px;border-bottom:1px solid #999}h3{font-size:12.5px;margin:10px 0 4px}
+      table{border-collapse:collapse;width:100%;margin-bottom:6px}td,th{border:1px solid #bbb;padding:3px 6px;text-align:left;vertical-align:top}.num{text-align:right}th{background:#f1f5f9}
+      .st-ok{color:#15803d}.st-los{color:#b91c1c}.st-weak{color:#b45309}.small{color:#333;font-size:11px}small{color:#555}
+      </style></head><body>${html}<p class="small">OptiSim FTTx Lab — © Hassami COMPAORE</p></body></html>`);
+    w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   }
 
   /* ---------------- OTDR ---------------- */
   function runOtdr(showErr) {
     const o = S.otdr;
     if (!o.devId) return;
-    const r = P.otdrShot(S.engine, o.devId, { lambda: o.lambda, launch: o.launch });
+    const r = P.otdrShot(S.engine, o.devId, { lambda: o.lambda, launch: o.launch, reverse: o.dir === 'retour' });
     if (r.error) { o.result = null; o.error = r.error; if (showErr) toast(r.error, 'err'); }
     else { o.result = r; o.error = null; }
   }
@@ -1306,7 +1373,8 @@
     h += `<div class="otdr-ctl"><label>λ <select id="otdrLambda">${[1310, 1550].map(l => `<option ${l === o.lambda ? 'selected' : ''}>${l}</option>`).join('')}</select> nm</label>
       <label>Bobine amorce <select id="otdrLaunch">${[0, 300, 500, 1000].map(l => `<option value="${l}" ${l === o.launch ? 'selected' : ''}>${l ? l + ' m' : 'aucune'}</option>`).join('')}</select></label>
       ${S.sel && S.sel.kind === 'dev' && !isContainer(devById(S.sel.id)) ? '<button class="btn small" data-act="otdr-sel">Tirer sur la sélection</button>' : ''}
-      <button class="btn small" data-act="otdr-full">Vue complète</button></div>`;
+      <button class="btn small" data-act="otdr-full">Vue complète</button></div>
+      <div class="segmented small otdr-dir"><button data-odir="aller" class="${o.dir === 'aller' ? 'active' : ''}" title="L'OTDR remplace la source, au NRO">Aller (depuis le NRO)</button><button data-odir="retour" class="${o.dir === 'retour' ? 'active' : ''}" title="L'OTDR est branché côté abonné, sur l'équipement visé">Retour (depuis l'abonné)</button></div>`;
     h += `<div class="otdr-screen"><canvas id="otdrCanvas" height="230"></canvas><div class="otdr-read" id="otdrRead"></div></div>`;
     if (o.error) h += `<div class="alert warn">${esc(o.error)}</div>`;
     if (o.result) {
@@ -1317,7 +1385,39 @@
         h += `<tr data-ev="${e.n}" class="${e.end && e.kind && e.kind.startsWith('fault') ? 'fault' : ''}" title="${esc(e.label)}"><td>${e.n}</td><td class="num">${fmt(e.pos, 1)} m</td><td class="num">${e.end ? '—' : fmt(e.loss, 2) + ' dB'}</td><td>${esc(e.type)}<small>${esc(e.label)}</small></td></tr>`;
       });
       h += '</tbody></table><p class="muted small">Cliquez sur un événement pour zoomer. Survolez la courbe pour lire distance et niveau.</p>';
+      h += `<div class="row"><button class="btn small primary" data-act="otdr-save" title="Enregistre ce tir dans la fiche de recette (rapport, copie d'examen)">Enregistrer le tir ${r.direction} (${r.lambda} nm)</button></div>`;
+      h += otdrBidirHTML(o.devId, r.lambda);
     }
+    return h;
+  }
+
+  /* ---------------- Tirs enregistrés et analyse bidirectionnelle ---------------- */
+  function savedShot(cible, lambda, sens) {
+    const rc = S.topo.recette;
+    return rc && rc.tirs ? rc.tirs.slice().reverse().find(x => x.cible === cible && x.lambda === lambda && x.sens === sens) : null;
+  }
+  function saveShot() {
+    const r = S.otdr.result, d = devById(S.otdr.devId);
+    if (!r || !d) return;
+    const tir = { cible: d.id, nom: d.props.name, lambda: r.lambda, sens: r.direction, launch: r.launch, date: new Date().toISOString(), totalLoss: Math.round(r.totalLoss * 1000) / 1000, endPos: r.endPos, netLen: r.netLen,
+      events: r.events.map(e => ({ n: e.n, net: e.net, pos: Math.round(e.pos * 10) / 10, loss: Math.round(e.loss * 1000) / 1000, type: e.type, label: e.label, kind: e.kind, reflective: e.reflective, end: e.end, parts: e.parts })) };
+    logJ('otdr', `Tir ${r.direction} enregistré : ${d.props.name} (${r.lambda} nm)`, { id: d.id });
+    mutate(() => { const rc = ensureRecette(); rc.tirs = rc.tirs.filter(x => !(x.cible === tir.cible && x.lambda === tir.lambda && x.sens === tir.sens)).concat([tir]); }, { keepInspector: false });
+    toast(`Tir ${r.direction} à ${r.lambda} nm enregistré pour « ${d.props.name} ».${savedShot(d.id, r.lambda, r.direction === 'aller' ? 'retour' : 'aller') ? ' L\'analyse bidirectionnelle est disponible.' : ' Faites aussi le tir ' + (r.direction === 'aller' ? 'retour' : 'aller') + ' pour l\'analyse bidirectionnelle.'}`, 'ok');
+  }
+  function bidirTableHTML(bi) {
+    const f3 = v => v === null ? '—' : fmt(v, 3);
+    return `<table class="cfg-table bidir"><tr><th>Distance</th><th>Aller</th><th>Retour</th><th>Moyenne</th><th>Seuil</th><th></th></tr>${bi.rows.map(r => `<tr title="${esc(r.label)}"><td class="num">${fmt(r.net, 1)} m</td><td class="num">${f3(r.aller)}</td><td class="num">${f3(r.retour)}</td><td class="num"><b>${f3(r.moy)}</b></td><td><small>${esc(r.type)}<br>${esc(r.seuil)}</small></td><td>${r.ok === null ? '<span class="muted">?</span>' : r.ok ? '<span class="st-ok">✓</span>' : '<span class="st-los">✗</span>'}</td></tr>`).join('')}</table>`;
+  }
+  function otdrBidirHTML(cible, lambda) {
+    const a = savedShot(cible, lambda, 'aller'), b = savedShot(cible, lambda, 'retour');
+    if (!a && !b) return '';
+    let h = `<div class="section"><h4>Analyse bidirectionnelle (${lambda} nm)</h4>`;
+    if (!a || !b) return h + `<p class="muted small">Tir ${a ? 'aller' : 'retour'} enregistré. Faites et enregistrez le tir ${a ? 'retour' : 'aller'} pour calculer la moyenne de chaque événement.</p></div>`;
+    const bi = P.otdrBidir(a, b, S.topo.recette.seuils);
+    h += bidirTableHTML(bi);
+    h += `<p class="small">Longueur ${fmtLen(bi.longueur)} · perte totale aller ${fmt(bi.totalAller)} dB, retour ${fmt(bi.totalRetour)} dB → <b class="${bi.conforme ? 'st-ok' : 'st-los'}">${bi.conforme ? 'événements conformes' : 'événement(s) hors seuil'}</b></p>
+      <p class="muted small">Une épissure ne mesure pas la même perte dans les deux sens (diamètres de mode différents) : seule la <b>moyenne</b> aller-retour se compare au seuil. Un « gain » apparent sur un tir seul n'est pas une erreur.</p></div>`;
     return h;
   }
 
@@ -1477,6 +1577,7 @@
     $$('[data-sel-link]', insp).forEach(a => a.addEventListener('click', e => { e.preventDefault(); select({ kind: 'link', id: a.dataset.selLink }); }));
     $$('[data-act]', insp).forEach(b => b.addEventListener('click', e => { e.preventDefault(); inspectorAction(b.dataset.act); }));
     const bp = $('#bilanPort', insp); if (bp) bp.addEventListener('change', () => { S.bilanPort = +bp.value; renderInspector(); });
+    const rp = $('#recRapport', insp); if (rp) rp.addEventListener('click', recetteRapport);
     $$('[data-recette]', insp).forEach(el => el.addEventListener('change', () => {
       const id = el.dataset.recette, v = parseDbm(el.value), d = devById(id);
       if (el.value.trim() && v === null) { toast('Mesure invalide : saisissez une puissance en dBm, par exemple −15,2.', 'err'); return renderInspector(); }
@@ -1485,6 +1586,7 @@
     }));
     
     const ol = $('#otdrLambda', insp); if (ol) ol.addEventListener('change', () => { S.otdr.lambda = +ol.value; if (S.otdr.devId) logJ('otdr', `OTDR vers ${devById(S.otdr.devId).props.name} (${S.otdr.lambda} nm)`, { id: S.otdr.devId }); runOtdr(true); renderInspector(); });
+    $$('[data-odir]', insp).forEach(b => b.addEventListener('click', () => { S.otdr.dir = b.dataset.odir; S.otdr.x0 = S.otdr.x1 = null; if (S.otdr.devId) logJ('otdr', `OTDR ${S.otdr.dir} vers ${devById(S.otdr.devId).props.name} (${S.otdr.lambda} nm)`, { id: S.otdr.devId }); runOtdr(true); renderInspector(); }));
     const oL = $('#otdrLaunch', insp); if (oL) oL.addEventListener('change', () => { S.otdr.launch = +oL.value; S.otdr.x0 = S.otdr.x1 = null; runOtdr(true); renderInspector(); });
     $$('tr[data-ev]', insp).forEach(tr => tr.addEventListener('click', () => {
       const e = S.otdr.result.events[+tr.dataset.ev - 1];
@@ -1517,6 +1619,7 @@
       
       case 'otdr-sel': logJ('otdr', `OTDR vers ${obj.props.name} (${S.otdr.lambda} nm)`, { id: sel.id }); S.otdr.devId = sel.id; S.otdr.x0 = S.otdr.x1 = null; runOtdr(true); return renderInspector();
       case 'otdr-full': S.otdr.x0 = S.otdr.x1 = null; return drawOtdr();
+      case 'otdr-save': return saveShot();
     }
   }
 
@@ -1832,7 +1935,7 @@
   function showConsignes() {
     if (!S.exam) return;
     const e = S.exam;
-    openModal(`Examen — ${e.title}`, `${e.consignes ? `<p class="pre">${esc(e.consignes)}</p>` : ''}
+    openModal(`Examen — ${e.title}`, `${e.eleve ? `<p><b>Sujet nominatif : ${esc(e.eleve)}</b>. Vérifiez que c'est bien votre nom.</p>` : ''}${e.consignes ? `<p class="pre">${esc(e.consignes)}</p>` : ''}
       <ul class="small">
         <li>Durée : ${e.duree ? e.duree + ' min' : 'libre'}.</li>
         <li>La topologie est <b>verrouillée</b> : vous ne pouvez ni ajouter, ni supprimer, ni déplacer d'équipement.</li>
@@ -1845,6 +1948,7 @@
     if (!S.exam) return;
     let prev = {};
     try { prev = JSON.parse(store.get('optisim-eleve') || '{}'); } catch (e) { prev = {}; }
+    if (S.exam.eleve && !prev.nom) { const w = S.exam.eleve.split(/\s+/); prev = { nom: w[0] || '', prenom: w.slice(1).join(' ') }; }
     openModal('Rendre ma copie', `<p>Votre copie contient la topologie dans son état actuel et le journal de vos actions.</p>
       <div class="form-grid"><label>Nom<input type="text" id="cpNom" value="${esc(prev.nom || '')}" autocomplete="off"></label><label>Prénom<input type="text" id="cpPrenom" value="${esc(prev.prenom || '')}" autocomplete="off"></label><label>Classe<input type="text" id="cpClasse" value="${esc(prev.classe || '')}" autocomplete="off"></label></div>
       <p class="muted small">Le fichier « copie-….json » est enregistré dans le dossier Téléchargements : remettez-le à votre enseignant (clé USB, ENT…). Vous pouvez continuer puis rendre une nouvelle copie : l'enseignant corrige la plus récente.</p>`, [

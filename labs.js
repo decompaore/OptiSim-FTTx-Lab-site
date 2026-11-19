@@ -577,7 +577,12 @@
 <li><b>Événement non réflectif</b> (marche sans pic) : épissure fusion, coupleur, courbure.</li>
 <li><b>Fin de fibre</b> : grand pic de Fresnel puis chute dans le bruit.</li></ul>
 <p>Réglages : longueur d'onde (1310 / 1550 nm), <b>bobine amorce</b> (fibre de lancement qui permet de voir le premier connecteur hors zone morte). Cliquez sur une ligne du tableau d'événements pour zoomer.</p>
-<p class="tip">Une perte plus forte à 1550 nm qu'à 1310 nm signale une <b>courbure</b>.</p>` },
+<p class="tip">Une perte plus forte à 1550 nm qu'à 1310 nm signale une <b>courbure</b>.</p>
+<h4>Mesure bidirectionnelle (recette)</h4>
+<ul><li><b>Aller</b> : l'OTDR est au NRO, à la place de la source. <b>Retour</b> : il est branché côté abonné, sur l'équipement visé, et tire vers le NRO.</li>
+<li>Une épissure ou un connecteur ne mesure pas la même perte dans les deux sens, car les fibres raccordées n'ont pas exactement le même diamètre de mode. Un tir seul peut même montrer un « gain ». Seule la <b>moyenne aller-retour</b> donne la vraie perte : c'est elle que l'on compare aux seuils.</li>
+<li>Bouton <b>Enregistrer le tir</b> : quand l'aller et le retour d'un même récepteur sont enregistrés à la même longueur d'onde, le tableau bidirectionnel affiche, pour chaque événement, l'aller, le retour, la moyenne et le seuil. Le seuil est calculé d'après les éléments que l'OTDR regroupe en un seul événement (connecteurs, épissures, coupleur).</li>
+<li>Les tirs enregistrés alimentent le <b>rapport de recette</b> imprimable (fiche de recette, onglet Bilan optique sans sélection).</li></ul>` },
 
     { id: 'vfl', group: 'Instruments de mesure', title: 'Stylo optique (VFL)', html: `
 <p>Le VFL (Visual Fault Locator) injecte une <b>lumière rouge visible</b> (650 nm) dans la fibre. Mode Mesure → outil <b>VFL</b> → cliquez sur l'équipement d'injection. Choisissez le sens (aval / amont) dans la fenêtre de l'instrument.</p>
@@ -608,7 +613,9 @@
 <h4>Dans le simulateur</h4>
 <ul><li>En <b>mode recette réaliste</b>, chaque composant a sa propre perte, tirée au hasard autour de la valeur de référence (souvent un peu meilleure), comme sur le terrain. Les instruments mesurent ce réseau réel ; le bilan affiche toujours le calcul théorique.</li>
 <li>La <b>fiche de recette</b> (onglet Bilan optique, sans sélection) liste chaque récepteur : saisissez la mesure du photomètre, l'écart et la conclusion s'affichent. Les mesures sont enregistrées avec le fichier et dans la copie d'examen.</li>
-<li>Pour s'entraîner : <b>Exemples &amp; TP → Exemple Recette</b>.</li></ul>
+<li>Pour s'entraîner : <b>Exemples &amp; TP → Exemple Recette</b>.</li>
+<li><b>Recette OTDR</b> : enregistrez un tir aller et un tir retour pour chaque récepteur (onglet OTDR). La moyenne de chaque événement est comparée au seuil : épissure ≤ 0,15 dB, connecteur ≤ 0,5 dB, coupleur à ± 0,5 dB de sa valeur nominale.</li>
+<li><b>Rapport de recette</b> (bouton de la fiche) : document imprimable avec les mesures au photomètre, l'analyse OTDR bidirectionnelle, les seuils appliqués et la conclusion « conforme » ou « non conforme ».</li></ul>
 ` },
 
     { id: 'equip', group: 'Fiches d\'ingénierie FTTx', title: 'ODF, PMI, PBO intérieur / extérieur', html: `

@@ -573,7 +573,7 @@
   // souvent meilleur. En mode recette (topo.recette.actif), chaque élément reçoit une perte
   // « réelle » tirée au hasard, reproductible (graine du réseau + identifiant de l'élément).
   // Les pannes et les incompatibilités APC/UPC gardent leur valeur exacte.
-  const RECETTE_SEUILS = { acceptable: 0.5, controle: 1.0, marge: 3, suspect: 2 };
+  const RECETTE_SEUILS = { acceptable: 0.5, controle: 1.0, marge: 3, suspect: 2, epissure: 0.15, connecteur: 0.5, coupleur: 0.5 };
   function hash32(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
   function seeded(seed) {
     return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -1037,11 +1037,13 @@
     const origin = path.segments[0];
     const originName = origin.kind === 'source' ? engine.dev.get(origin.id).props.name : (segs[0] ? segs[0].label : '');
 
-    const events = [];
-    const fibers = []; // {from, to, att}
-    const addEv = (pos, loss, reflective, label, kind) => {
+    let events = [];
+    let fibers = []; // {from, to, att}
+    // part : composant de l'événement (type, perte nominale, panne) pour calculer son seuil de recette
+    const addEv = (pos, loss, reflective, label, kind, part) => {
       const last = events[events.length - 1];
       if (last && Math.abs(last.pos - pos) < 0.5 && !last.end) {
+        if (part) last.parts.push(part);
         last.loss += isFinite(loss) ? loss : 0;
         last.reflective = last.reflective || reflective;
         if (label && last.labels.indexOf(label) < 0) last.labels.push(label);
@@ -1049,7 +1051,7 @@
         else if (kind && kind.startsWith('fault')) last.kind = kind;
         return last;
       }
-      const ev = { pos, loss: isFinite(loss) ? loss : 0, reflective, labels: label ? [label] : [], kind };
+      const ev = { pos, loss: isFinite(loss) ? loss : 0, reflective, labels: label ? [label] : [], kind, parts: part ? [part] : [] };
       events.push(ev); return ev;
     };
     addEv(0, 0, true, 'Connecteur de l\'OTDR', 'start');
@@ -1065,7 +1067,7 @@
       if (s.kind === 'device') {
         for (const it of s.items) {
           if (!isFinite(it.loss)) { end = it.hidden ? { pos, label: 'Fin de trace', kind: 'end' } : { pos, label: it.label, kind: it.kind }; break; }
-          if (it.loss > 0 || it.reflective) addEv(pos, it.loss, it.reflective, it.hidden ? `${s.label} — événement à analyser` : `${s.label} — ${it.label}`, it.hidden ? (it.reflective ? 'connector' : 'splice') : it.kind);
+          if (it.loss > 0 || it.reflective) addEv(pos, it.loss, it.reflective, it.hidden ? `${s.label} — événement à analyser` : `${s.label} — ${it.label}`, it.hidden ? (it.reflective ? 'connector' : 'splice') : it.kind, { k: it.kind, nom: it.nominal !== undefined ? it.nominal : it.loss, fault: !!it.fault });
         }
         continue;
       }
@@ -1083,13 +1085,40 @@
           for (const f of fibers) if (f.to > p) f.to = Math.max(f.from, p);
           break;
         }
-        addEv(p, it.loss, it.reflective, it.hidden ? 'Événement à analyser' : it.label, it.hidden ? (it.reflective ? 'connector' : 'splice') : it.kind);
+        addEv(p, it.loss, it.reflective, it.hidden ? 'Événement à analyser' : it.label, it.hidden ? (it.reflective ? 'connector' : 'splice') : it.kind, { k: it.kind, nom: it.nominal !== undefined ? it.nominal : it.loss, fault: !!it.fault });
       }
       if (!end) pos = start + s.length;
     }
     if (!end) end = { pos, label: `Extrémité : ${d.props.name} (connecteur ouvert)`, kind: 'end' };
     const endEv = { pos: end.pos, loss: 0, reflective: end.kind !== 'fault-swap', labels: [end.label], kind: end.kind, end: true };
     events.push(endEv);
+
+    // Asymétrie de mesure (mode recette réaliste) : une épissure ou un connecteur ne mesure pas
+    // la même perte dans les deux sens (diamètres de mode différents). La moyenne aller-retour
+    // donne la vraie valeur ; un tir seul peut même montrer un « gain » apparent.
+    const isLaunch = e => /bobine amorce/.test(e.labels[0] || '');
+    events.forEach(e => {
+      e.trueLoss = e.loss; e.asym = 0;
+      if (!engine.real || e.end || e.kind === 'start' || isLaunch(e)) return;
+      const sc = e.reflective ? 0.03 : e.kind === 'splitter' ? 0.08 : 0.06;
+      const r = mulberry32(hash32(engine.seed + '|otdr|' + Math.round(e.pos * 10) + '|' + lambda));
+      e.asym = Math.round((r() * 2 - 1) * sc * 1000) / 1000;
+    });
+    let target = d.props.name, originLabel = originName;
+    if (opts.reverse) {
+      // Tir retour : l'OTDR est branché côté abonné ; le chemin est parcouru dans l'autre sens
+      if (end.kind !== 'end' || String(end.label).indexOf('Extrémité') !== 0) return { error: 'Tir retour impossible : la trace aller n\'atteint pas l\'extrémité (coupure ou fin anormale). Localisez d\'abord le défaut avec le tir aller.' };
+      const P = end.pos, L0 = launch > 0 ? launch : 0;
+      const inner = events.filter(e => !e.end && e.kind !== 'start' && !isLaunch(e));
+      const rev = [{ pos: 0, loss: 0, reflective: true, labels: ['Connecteur de l\'OTDR'], kind: 'start', asym: 0 }];
+      if (L0) rev.push({ pos: L0, loss: 0.3, reflective: true, labels: ['Raccord bobine amorce → réseau (' + d.props.name + ')'], kind: 'connector', asym: 0 });
+      inner.slice().reverse().forEach(e => rev.push({ pos: L0 + (P - e.pos), loss: e.trueLoss - e.asym, reflective: e.reflective, labels: e.labels.slice(), kind: e.kind, asym: -e.asym, parts: e.parts }));
+      const endLabel = `Extrémité : ${originName} (côté NRO)`;
+      rev.push({ pos: P, loss: 0, reflective: true, labels: [endLabel], kind: 'end', end: true });
+      fibers = fibers.map(f => (L0 && f.to <= L0 + 1e-9) ? f : { from: L0 + (P - f.to), to: L0 + (P - Math.max(f.from, L0)), att: f.att, label: f.label });
+      events = rev; end = { pos: P, label: endLabel, kind: 'end' };
+      target = originName; originLabel = d.props.name;
+    } else events.forEach(e => { e.loss = e.trueLoss + e.asym; });
 
     // Niveau de rétrodiffusion à une distance x (en dB, 0 = départ)
     const levelAt = x => {
@@ -1127,14 +1156,16 @@
       pts.push([x, y]);
     }
     const numbered = events.map((e, i) => ({
-      n: i + 1, pos: e.pos, loss: e.loss, reflective: e.reflective, end: !!e.end, kind: e.kind,
+      n: i + 1, pos: e.pos, loss: e.loss, reflective: e.reflective, end: !!e.end, kind: e.kind, parts: e.parts || [],
       label: e.labels.join(' + '),
       type: e.end ? (e.kind && e.kind.startsWith('fault') ? 'Fin anormale (coupure)' : 'Fin de fibre') :
         e.kind === 'start' ? 'Départ' : e.kind === 'splitter' ? 'Coupleur' :
         (e.kind && e.kind.startsWith('fault-bend')) ? 'Perte non réflective (courbure)' :
         e.reflective ? 'Événement réflectif' : 'Événement non réflectif'
     }));
-    return { lambda, launch, span, floor, points: pts, events: numbered, endPos: end.pos, target: d.props.name, origin: originName, totalLoss: -levelAt(end.pos) };
+    const netLen = end.pos - (launch > 0 ? launch : 0);
+    numbered.forEach(e => { e.net = Math.round((opts.reverse ? end.pos - e.pos : e.pos - (launch > 0 ? launch : 0)) * 10) / 10; });
+    return { lambda, launch, span, floor, points: pts, events: numbered, endPos: end.pos, netLen, direction: opts.reverse ? 'retour' : 'aller', target, origin: originLabel, targetId: devId, totalLoss: -levelAt(end.pos) };
   }
 
   /* ------------------------------------------------------------------ */
@@ -1225,12 +1256,44 @@
     return rows;
   }
 
+  /**
+   * Analyse bidirectionnelle de deux tirs OTDR (aller depuis le NRO, retour depuis l'abonné)
+   * à la même longueur d'onde : moyenne des pertes par événement et verdict par seuil.
+   * Les tirs peuvent être des résultats d'otdrShot ou des tirs enregistrés (mêmes champs).
+   */
+  function otdrBidir(aller, retour, seuils) {
+    const S = Object.assign({}, RECETTE_SEUILS, seuils || {});
+    const keep = e => !e.end && e.kind !== 'start' && !/bobine amorce/.test(e.label || '');
+    const B = retour.events.filter(keep);
+    const rows = aller.events.filter(keep).map(a => {
+      const b = B.find(x => Math.abs(x.net - a.net) <= 1.5);
+      const moy = b ? Math.round((a.loss + b.loss) / 2 * 1000) / 1000 : null;
+      // Seuil de l'événement = somme des tolérances de ses composants (l'OTDR fusionne les éléments proches)
+      const parts = Array.isArray(a.parts) && a.parts.length ? a.parts : [{ k: a.kind === 'splitter' ? 'splitter' : a.reflective ? 'connector' : 'fusion', nom: 0 }];
+      let max = 0, nomSplit = null;
+      const nb = { c: 0, e: 0 };
+      parts.forEach(pt => {
+        if (pt.fault || pt.k === 'mismatch' || pt.k === 'pass') return;          // une panne n'apporte aucune tolérance
+        if (pt.k === 'splitter') { nomSplit = (nomSplit || 0) + pt.nom; max += pt.nom + S.coupleur; }
+        else if (pt.k === 'connector') { nb.c++; max += S.connecteur; }
+        else if (pt.k === 'mechanical') { nb.e++; max += Math.max(0.3, S.epissure); }
+        else { nb.e++; max += S.epissure; }
+      });
+      max = Math.round(max * 1000) / 1000;
+      const comp = [nb.c ? `${nb.c} connecteur${nb.c > 1 ? 's' : ''}` : '', nb.e ? `${nb.e} épissure${nb.e > 1 ? 's' : ''}` : ''].filter(Boolean).join(' + ');
+      const type = nomSplit !== null ? `Coupleur (${fmt(nomSplit, 1)} dB nominal)${comp ? ' + ' + comp : ''}` : (comp || (a.reflective ? 'Événement réflectif' : 'Événement non réflectif'));
+      const ok = moy !== null && moy <= max + 1e-9;
+      return { net: a.net, aller: a.loss, retour: b ? b.loss : null, moy, type, seuil: `≤ ${fmt(max, 2)} dB`, max, ok: moy === null ? null : ok, label: a.label };
+    });
+    return { rows, longueur: aller.netLen, totalAller: aller.totalLoss, totalRetour: retour.totalLoss, conforme: rows.every(r => r.ok !== false) && rows.every(r => r.ok !== null) };
+  }
+
   global.OptiPhysics = {
     ATTENUATION, SPLITTER_LOSS, JOINTS, FAULTS, CABLES, CATALOG, CONNECTORS, CATEGORIES, TERMINALS,
     PROFILES, GPON_DOWN, GPON_UP, ACCESS_MODES, autoSerial,
     REF_SENSITIVITY, REF_OVERLOAD, WEAK_MARGIN, VFL_RANGE, ETH_MAX, BLD_HEADER,
     connectorFamily, connectorColor, connectorFormat, bendLoss, faultLoss,
     mduLevels, floorLabel, buildingRect, isRoom, ROOM_COLORS, deviceSize, portPos, assignParents, DEV_W, portsOf, fmt, fmtLen, attFor, classify,
-    Engine, otdrShot, vflInject, RECETTE_SEUILS, recetteVerdict, recetteRows
+    Engine, otdrShot, otdrBidir, vflInject, RECETTE_SEUILS, recetteVerdict, recetteRows
   };
 })(typeof window !== 'undefined' ? window : globalThis);

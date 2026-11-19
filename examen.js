@@ -75,7 +75,7 @@
    */
   function makeSujet(topo, meta) {
     const t = { devices: clone(topo.devices), links: clone(topo.links) };
-    if (topo.recette) t.recette = Object.assign(clone(topo.recette), { mesures: {} }); // fiche de recette vierge
+    if (topo.recette) t.recette = Object.assign(clone(topo.recette), { mesures: {}, tirs: [] }); // fiche de recette vierge
     t.devices.concat(t.links).forEach(o => { if (o.fault && o.fault.type) o.fault.hidden = true; if (o.cfgFault) o.cfgFault.hidden = true; });
     const exam = {
       id: newId(),
@@ -84,6 +84,8 @@
       duree: Math.max(0, Math.round(+meta.duree || 0)),
       bareme: Object.assign({}, DEFAULT_BAREME, meta.bareme || {}),
       signaler: !!meta.signaler,
+      eleve: String(meta.eleve || '').trim(),   // sujet nominatif (lot de sujets individuels)
+      lot: String(meta.lot || ''),
       createdAt: new Date().toISOString(),
       faults: listFaults(t),
       topo: t
@@ -108,6 +110,106 @@
       journal: clone(journal || [])
     };
     return { app: APP, kind: 'copie', version: 1, title: exam.title, data: encode(copie) };
+  }
+
+  /* ---------------- Lots de sujets individuels ---------------- */
+  function hashStr(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function rngFrom(str) {
+    let a = hashStr(str);
+    return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  const slugify = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'sans-nom';
+  const PASSIVES = ['odf', 'odf_int', 'pmi', 'sro', 'pbo_ext', 'pbo_int', 'pto', 'splice', 'coupler'];
+  /**
+   * Injecte des pannes cachées tirées au hasard (rnd) : nCfg pannes de configuration (si la
+   * couche service est active), puis nOpt pannes optiques sur des éléments éclairés.
+   */
+  function injectRandomFaults(t, nOpt, nCfg, rnd) {
+    const P = global.OptiPhysics, SV = global.OptiServices;
+    for (let i = 0; i < nCfg; i++) {
+      P.assignParents(t);
+      const e = new P.Engine(t);
+      if (!SV.randomCfgFault(t, e, rnd)) break;
+    }
+    P.assignParents(t);
+    const e = new P.Engine(t);
+    const cands = [];
+    t.links.forEach(l => { if (P.CABLES[l.type].kind === 'opt' && !l.fault && e.linkState(l).lit) cands.push({ kind: 'link', o: l }); });
+    t.devices.forEach(d => { if (PASSIVES.includes(d.type) && !d.fault) { const st = e.deviceState(d.id); if (st && st.res && !st.res.dark) cands.push({ kind: 'dev', o: d }); } });
+    for (let i = 0; i < nOpt && cands.length; i++) {
+      const c = cands.splice(Math.floor(rnd() * cands.length), 1)[0];
+      const types = Object.keys(P.FAULTS).filter(k => c.kind === 'link' ? P.FAULTS[k].link : P.FAULTS[k].device);
+      c.o.fault = { type: types[Math.floor(rnd() * types.length)], hidden: true };
+      if (c.kind === 'link') c.o.fault.pos = Math.round(e.lengthInfo(c.o).total * (0.15 + rnd() * 0.7) * 10) / 10;
+    }
+    return t;
+  }
+  /**
+   * Lot de sujets individuels : à partir d'une même topologie, un sujet nominatif par élève,
+   * avec ses propres pannes. Renvoie les fichiers (sujets + corrigé) et l'archive .zip.
+   */
+  function makeLot(topo, eleves, opts) {
+    const o = Object.assign({ optiques: 1, config: 0, meta: {} }, opts || {});
+    const lot = newId();
+    const noms = eleves.map(x => String(x).trim()).filter(Boolean).filter((x, i, a) => a.indexOf(x) === i);
+    const files = [], rows = [['Élève', 'Fichier', 'Pannes']], seen = new Set();
+    noms.forEach(nom => {
+      let t, sig, k = 0;
+      do { // évite deux sujets identiques quand c'est possible
+        t = injectRandomFaults({ devices: clone(topo.devices), links: clone(topo.links), recette: topo.recette ? clone(topo.recette) : undefined }, o.optiques, o.config, rngFrom(lot + '|' + nom + '|' + k));
+        sig = listFaults(t).map(f => f.kind + f.id + f.type).sort().join(',');
+        k++;
+      } while (seen.has(sig) && k < 8);
+      seen.add(sig);
+      if (!t.recette) delete t.recette;
+      const file = makeSujet(t, Object.assign({}, o.meta, { eleve: nom, lot }));
+      const name = `sujet-${slugify(file.title)}-${slugify(nom)}.json`;
+      files.push({ name, text: JSON.stringify(file) });
+      rows.push([nom, name, listFaults(t).map(f => `${f.label} — ${f.where}`).join(' | ')]);
+    });
+    const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    files.push({ name: 'CORRIGE-ne-pas-distribuer.csv', text: csv });
+    return { lot, count: noms.length, files, zip: zipFiles(files) };
+  }
+
+  /* ---------------- Archive .zip (sans compression) ---------------- */
+  const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC_TABLE[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  /** Archive ZIP (méthode « stockée », noms UTF-8) : files = [{ name, text }]. */
+  function zipFiles(files) {
+    const enc = new TextEncoder(), now = new Date();
+    const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    const chunks = [], central = [];
+    let offset = 0;
+    files.forEach(f => {
+      const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+      const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+      h.setUint16(10, time, true); h.setUint16(12, date, true); h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true);
+      h.setUint16(26, name.length, true); h.setUint16(28, 0, true);
+      chunks.push(new Uint8Array(h.buffer), name, data);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+      c.setUint16(12, time, true); c.setUint16(14, date, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true);
+      c.setUint16(28, name.length, true); c.setUint32(42, offset, true);
+      central.push(new Uint8Array(c.buffer), name);
+      offset += 30 + name.length + data.length;
+    });
+    const cSize = central.reduce((s, x) => s + x.length, 0);
+    const e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cSize, true); e.setUint32(16, offset, true);
+    const all = chunks.concat(central, [new Uint8Array(e.buffer)]);
+    const out = new Uint8Array(all.reduce((s, x) => s + x.length, 0));
+    let p = 0; all.forEach(x => { out.set(x, p); p += x.length; });
+    return out;
+  }
+  /** Le nom de la copie correspond-il à l'élève du sujet nominatif ? */
+  function sameStudent(sujetEleve, eleve) {
+    if (!sujetEleve) return true;
+    const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const ref = norm(sujetEleve), got = norm(`${eleve.nom} ${eleve.prenom}`);
+    return got.length > 0 && got.every(w => ref.includes(w));
   }
 
   /* ---------------- Correction ---------------- */
@@ -182,6 +284,18 @@
           juste: m !== null && r.real !== null && Math.abs(m - r.real) <= 0.1 };
       });
     }
+    // Tirs OTDR enregistrés : complétude et analyse bidirectionnelle
+    let otdr = null;
+    if (fin.recette && Array.isArray(fin.recette.tirs) && fin.recette.tirs.length) {
+      const P = global.OptiPhysics, T = fin.recette.tirs, seen = [];
+      otdr = [];
+      T.forEach(x => {
+        const k = x.cible + '|' + x.lambda; if (seen.includes(k)) return; seen.push(k);
+        const last = sens => T.filter(y => y.cible === x.cible && y.lambda === x.lambda && y.sens === sens).pop();
+        const a = last('aller'), b = last('retour'), bi = a && b ? P.otdrBidir(a, b, fin.recette.seuils) : null;
+        otdr.push({ nom: x.nom, lambda: x.lambda, aller: !!a, retour: !!b, conforme: bi ? bi.conforme : null, horsSeuil: bi ? bi.rows.filter(r => r.ok === false).length : null });
+      });
+    }
 
     // Méthode : chaque correction réussie doit être précédée d'une mesure (pannes physiques)
     // ou d'une consultation du diagnostic (pannes de configuration) depuis l'action précédente.
@@ -218,11 +332,12 @@
 
     return {
       eleve: copie.eleve, renduLe: copie.renduLe, title: copie.exam.title, examId: copie.exam.id,
-      bareme: B, faults, nRep, services, nSvc, units, methodical, inutiles, recette,
+      sujetDe: copie.exam.eleve || null, sujetConforme: sameStudent(copie.exam.eleve, copie.eleve),
+      bareme: B, faults, nRep, services, nSvc, units, methodical, inutiles, recette, otdr,
       mesures: J.filter(e => MEASURES.has(e.k)).length,
       pts, max, note, dureeMin, journal: J
     };
   }
 
-  global.OptiExam = { DEFAULT_BAREME, BAREME_LABELS, encode, decode, listFaults, makeSujet, readFile, makeCopie, grade };
+  global.OptiExam = { DEFAULT_BAREME, BAREME_LABELS, encode, decode, listFaults, makeSujet, readFile, makeCopie, grade, makeLot, injectRandomFaults, zipFiles, crc32, sameStudent };
 })(typeof window !== 'undefined' ? window : globalThis);
