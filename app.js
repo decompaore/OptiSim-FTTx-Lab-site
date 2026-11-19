@@ -12,6 +12,8 @@
   const X = window.OptiExam;
   /** Version enseignant (complète) ou élève (paquet sans corrigés ni outils de pannes). */
   const TEACHER = !window.OptiEdition || window.OptiEdition.role !== 'eleve';
+  /** Signature des documents imprimés (edition.js). */
+  const SIGNATURE = (window.OptiEdition && window.OptiEdition.auteur && window.OptiEdition.auteur.signature) || 'Hassami COMPAORE · decompaore@gmail.com · Tél. / WhatsApp : +226 79 00 03 04';
   const clone = o => JSON.parse(JSON.stringify(o));
   const { CATALOG, CABLES, JOINTS, FAULTS, CATEGORIES, fmt, fmtLen, portsOf, deviceSize, portPos, buildingRect, mduLevels } = P;
 
@@ -87,6 +89,7 @@
   function normalize(topo) {
     const t = { devices: [], links: [] };
     if (topo && topo.recette) t.recette = normRecette(topo.recette);
+    if (topo && topo.projet && typeof topo.projet === 'object') t.projet = Object.assign({}, topo.projet);
     for (const d of (topo && topo.devices) || []) {
       const def = CATALOG[d.type];
       if (!def) continue;
@@ -1354,7 +1357,7 @@
       body{font:12px/1.45 system-ui,sans-serif;color:#111;margin:14mm}h1{font-size:19px;margin:0 0 4px}h2{font-size:14px;margin:16px 0 6px;border-bottom:1px solid #999}h3{font-size:12.5px;margin:10px 0 4px}
       table{border-collapse:collapse;width:100%;margin-bottom:6px}td,th{border:1px solid #bbb;padding:3px 6px;text-align:left;vertical-align:top}.num{text-align:right}th{background:#f1f5f9}
       .st-ok{color:#15803d}.st-los{color:#b91c1c}.st-weak{color:#b45309}.small{color:#333;font-size:11px}small{color:#555}
-      </style></head><body>${html}<p class="small">OptiSim FTTx Lab — © Hassami COMPAORE</p></body></html>`);
+      </style></head><body>${html}<p class="small">OptiSim FTTx Lab — © ${esc(SIGNATURE)}</p></body></html>`);
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   }
 
@@ -1845,6 +1848,7 @@
     if (S.exam) return submitCopy();
     const data = { app: 'OptiSim FTTx Lab', author: 'Hassami COMPAORE', version: 1, savedAt: new Date().toISOString(), view: S.view, devices: S.topo.devices, links: S.topo.links };
     if (S.topo.recette) data.recette = S.topo.recette;
+    if (S.topo.projet) data.projet = S.topo.projet;
     download(JSON.stringify(data, null, 2), `topologie-optisim-${new Date().toISOString().slice(0, 10)}.json`);
     toast('Topologie exportée en JSON.', 'ok');
   }

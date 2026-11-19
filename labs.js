@@ -504,7 +504,9 @@
 <h4>Raccourcis</h4>
 <table class="doc-table"><tr><td><kbd>Suppr</kbd></td><td>Supprimer la sélection</td></tr><tr><td><kbd>Échap</kbd></td><td>Annuler l'outil en cours</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Annuler</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Sauvegarder (JSON)</td></tr><tr><td><kbd>F</kbd></td><td>Recadrer la vue sur le réseau</td></tr></table>
 <h4>Badges de statut</h4>
-<p><span class="dot ok"></span> OK &nbsp; <span class="dot weak"></span> Signal faible (marge &lt; 3 dB) &nbsp; <span class="dot los"></span> LOS / saturation &nbsp; <span class="dot nc"></span> non raccordé / pas de source.</p>` },
+<p><span class="dot ok"></span> OK &nbsp; <span class="dot weak"></span> Signal faible (marge &lt; 3 dB) &nbsp; <span class="dot los"></span> LOS / saturation &nbsp; <span class="dot nc"></span> non raccordé / pas de source.</p>
+<h4>Auteur et contact</h4>
+<p><b>Hassami COMPAORE</b> — <a href="mailto:decompaore@gmail.com">decompaore@gmail.com</a> — Tél. / WhatsApp : <b>+226 79 00 03 04</b>. Questions, remarques et propositions de TP sont les bienvenues.</p>` },
 
     { id: 'buildings', group: 'Guide de l\'utilisateur', title: 'Créer des bâtiments', html: `
 <h4>Bâtiment simple</h4>
@@ -560,6 +562,7 @@
 </ol>
 <div class="tip">Vos mesures, interventions et réglages sont enregistrés dans un <b>journal</b> joint à la copie. Si le navigateur est fermé par erreur, l'examen reprend à la réouverture.</div>
 ` },
+    
     { id: 'pm', group: 'Instruments de mesure', title: 'Photomètre (wattmètre optique)', html: `
 <p>Le photomètre mesure la <b>puissance optique</b> en dBm sur un port. Mode <b>Mesure / Test</b> → outil <b>Photomètre</b> → cliquez sur un équipement (OLT, ODF, PMI, PBO, PTO, ONT…).</p>
 <p>L'afficheur indique : la longueur d'onde, la puissance reçue, l'atténuation cumulée depuis la source et le statut :</p>
