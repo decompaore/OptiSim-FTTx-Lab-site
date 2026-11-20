@@ -489,8 +489,8 @@
 <table class="doc-table"><tr><th>Mode</th><th>Usage</th></tr>
 <tr><td>Conception</td><td>Poser, déplacer, câbler et paramétrer les équipements.</td></tr>
 <tr><td>Mesure / Test</td><td>Utiliser le photomètre, l'OTDR et le stylo optique (VFL).</td></tr>
-<tr><td>Dépannage <small>(version élève)</small></td><td>Intervenir sur un câble ou un équipement défectueux, après l'avoir localisé par la mesure.</td></tr></table>
-<p>Voir aussi : <a href="#" data-doc-link="exam">Versions élève / enseignant et examens</a>.</p>
+<tr><td>Dépannage</td><td>Intervenir sur un câble ou un équipement défectueux, après l'avoir localisé par la mesure.</td></tr></table>
+
 <h4>Poser et câbler</h4>
 <ul>
 <li><b>Glissez</b> un équipement de la boîte à outils vers le canevas. Déposé dans un bâtiment, il y est rattaché (et à l'étage correspondant).</li>
@@ -545,23 +545,6 @@
 <li>Outil <b>Câble intérieur LSZH</b> : PBO → PTO de chaque logement (épissure fusion aux deux bouts = piquage dans le PBO + épissure dans la PTO).</li></ol>
 <p class="tip">Modélisation : un câble multi-fibres est représenté par un seul trait. Chaque sortie d'un PBO correspond à une fibre de la colonne dédiée à un logement.</p>` },
 
-    { id: 'exam', group: 'Guide de l\'utilisateur', title: 'Versions élève / enseignant et examens', html: `
-<p>OptiSim FTTx Lab existe en deux versions, construites à partir des mêmes fichiers :</p>
-<table class="doc-table"><tr><th>Version</th><th>Contenu</th></tr>
-<tr><td><b>Élève</b></td><td>TP, exemples, instruments de mesure, couche service, documentation et livrets (fiches élèves). Pas de corrigés, pas d'injection ni de révélation des pannes : le mode « Dépannage » permet seulement d'<b>intervenir</b> sur un élément.</td></tr>
-<tr><td><b>Enseignant</b></td><td>Tout le contenu, les corrigés des TP et des livrets, la simulation de pannes, et le bouton <b>« Examen »</b> : création de sujets et correction des copies.</td></tr></table>
-<p>La version utilisée est indiquée sous le titre, en haut à gauche.</p>
-<h3>Passer un examen (élève)</h3>
-<ol>
-<li>Cliquez sur <b>Ouvrir</b> et choisissez le fichier <code>sujet-….json</code> donné par l'enseignant. Les consignes s'affichent ; le temps écoulé (ou restant) apparaît dans la barre supérieure.</li>
-<li>La topologie est <b>verrouillée</b> : impossible d'ajouter, de supprimer ou de déplacer un équipement ou un câble. Les mesures, les réglages et la configuration restent possibles.</li>
-<li>Localisez chaque défaut avec le photomètre, l'OTDR, le VFL et le diagnostic de l'onglet « Configuration ».</li>
-<li>Défaut optique : mode <b>« Dépannage »</b>, sélectionnez le câble ou l'équipement, puis <b>« Reprendre le câble »</b> ou <b>« Nettoyer / remplacer »</b>. Le simulateur ne dit pas si l'élément était en panne : <b>contrôlez par une mesure</b>. Chaque intervention inutile est pénalisée.</li>
-<li>Erreur de configuration : corrigez la valeur dans l'onglet « Configuration », puis relisez le diagnostic des appareils.</li>
-<li>À la fin, cliquez sur <b>« Rendre ma copie »</b> (ou Ctrl+S), indiquez nom, prénom et classe, puis remettez le fichier <code>copie-….json</code> enregistré dans Téléchargements.</li>
-</ol>
-<div class="tip">Vos mesures, interventions et réglages sont enregistrés dans un <b>journal</b> joint à la copie. Si le navigateur est fermé par erreur, l'examen reprend à la réouverture.</div>
-` },
     
     { id: 'pm', group: 'Instruments de mesure', title: 'Photomètre (wattmètre optique)', html: `
 <p>Le photomètre mesure la <b>puissance optique</b> en dBm sur un port. Mode <b>Mesure / Test</b> → outil <b>Photomètre</b> → cliquez sur un équipement (OLT, ODF, PMI, PBO, PTO, ONT…).</p>
@@ -673,13 +656,7 @@
 <p>OLT +4 dBm, 5 km à 1490 nm, ODF, SRO 1:32, 4 épissures, PTO :</p>
 <p>Pertes = 5 × 0,25 + 0,5 + (0,5 + 17,2) + 4 × 0,05 + 0,5 = 20,15 dB → P<sub>reçue</sub> = 4 − 20,15 = <b>−16,15 dBm</b>.</p>
 <p>Conditions : P<sub>reçue</sub> ≥ sensibilité (−27 dBm) avec une <b>marge ≥ 3 dB</b>, et P<sub>reçue</sub> ≤ saturation (−8 dBm).</p>
-<h4>Budget optique</h4>
-<p class="formula">Budget (dB) = P<sub>émise</sub> (dBm) − sensibilité (dBm)<br>Pertes admissibles = budget − marge de sécurité (3 dB)<br>Marge = budget − Σ pertes = P<sub>reçue</sub> − sensibilité</p>
-<p>Le budget est la quantité de pertes que la liaison peut « dépenser ». Exemple : OLT +4 dBm, ONT −27 dBm → budget <b>31 dB</b>, pertes admissibles 28 dB. Avec 20,15 dB de pertes, la liaison utilise 65 % du budget et garde 10,85 dB de marge.</p>
-<table class="doc-table"><tr><th>Classe GPON (norme ITU-T G.984)</th><th>Affaiblissement du réseau passif</th></tr>
-<tr><td>B+</td><td>13 à 28 dB</td></tr><tr><td>C+</td><td>17 à 32 dB</td></tr></table>
-<p>La classe est un <b>pire cas garanti</b> (puissance d'émission minimale de l'OLT) : un réseau étudié pour la classe B+ doit rester sous 28 dB de pertes, même si le budget réel des équipements est plus grand. La classe se choisit dans les propriétés de l'OLT.</p>
-<p>Dans OptiSim, l'onglet <b>Bilan optique</b> affiche le budget, les pertes admissibles, la marge, une jauge du budget utilisé et la conformité à la classe de l'OLT.</p>` },
+<p>Budget optique GPON classe B+ : 28 dB ; classe C+ : 32 dB.</p>` },
 
     { id: 'archi', group: 'Fiches d\'ingénierie FTTx', title: 'Architectures FTTH, FTTB, FTTO, P2P', html: `
 <table class="doc-table"><tr><th>Architecture</th><th>Principe</th></tr>
