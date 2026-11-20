@@ -673,7 +673,13 @@
 <p>OLT +4 dBm, 5 km à 1490 nm, ODF, SRO 1:32, 4 épissures, PTO :</p>
 <p>Pertes = 5 × 0,25 + 0,5 + (0,5 + 17,2) + 4 × 0,05 + 0,5 = 20,15 dB → P<sub>reçue</sub> = 4 − 20,15 = <b>−16,15 dBm</b>.</p>
 <p>Conditions : P<sub>reçue</sub> ≥ sensibilité (−27 dBm) avec une <b>marge ≥ 3 dB</b>, et P<sub>reçue</sub> ≤ saturation (−8 dBm).</p>
-<p>Budget optique GPON classe B+ : 28 dB ; classe C+ : 32 dB.</p>` },
+<h4>Budget optique</h4>
+<p class="formula">Budget (dB) = P<sub>émise</sub> (dBm) − sensibilité (dBm)<br>Pertes admissibles = budget − marge de sécurité (3 dB)<br>Marge = budget − Σ pertes = P<sub>reçue</sub> − sensibilité</p>
+<p>Le budget est la quantité de pertes que la liaison peut « dépenser ». Exemple : OLT +4 dBm, ONT −27 dBm → budget <b>31 dB</b>, pertes admissibles 28 dB. Avec 20,15 dB de pertes, la liaison utilise 65 % du budget et garde 10,85 dB de marge.</p>
+<table class="doc-table"><tr><th>Classe GPON (norme ITU-T G.984)</th><th>Affaiblissement du réseau passif</th></tr>
+<tr><td>B+</td><td>13 à 28 dB</td></tr><tr><td>C+</td><td>17 à 32 dB</td></tr></table>
+<p>La classe est un <b>pire cas garanti</b> (puissance d'émission minimale de l'OLT) : un réseau étudié pour la classe B+ doit rester sous 28 dB de pertes, même si le budget réel des équipements est plus grand. La classe se choisit dans les propriétés de l'OLT.</p>
+<p>Dans OptiSim, l'onglet <b>Bilan optique</b> affiche le budget, les pertes admissibles, la marge, une jauge du budget utilisé et la conformité à la classe de l'OLT.</p>` },
 
     { id: 'archi', group: 'Fiches d\'ingénierie FTTx', title: 'Architectures FTTH, FTTB, FTTO, P2P', html: `
 <table class="doc-table"><tr><th>Architecture</th><th>Principe</th></tr>
