@@ -1,4 +1,4 @@
-OptiSim FTTx Lab — version élève
+OptiSim FTTx Lab 1.0.0 — version élève
 Auteur : Hassami COMPAORE — decompaore@gmail.com — Tél. / WhatsApp : +226 79 00 03 04
 
 Ouvrir index.html dans un navigateur récent (Chrome, Edge, Firefox). Aucune installation, aucune connexion Internet.

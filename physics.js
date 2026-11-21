@@ -59,6 +59,26 @@
   /** Référence d'évaluation des ports passifs : ONT GPON classe B+. */
   const REF_SENSITIVITY = -27;
   const REF_OVERLOAD = -8;
+  /** Classes optiques GPON (ITU-T G.984.2) : affaiblissement admissible du réseau passif (ODN), min et max en dB. */
+  const GPON_CLASSES = { 'B+': { min: 13, max: 28, sens: -27, over: -8 }, 'C+': { min: 17, max: 32, sens: -30, over: -12 } };  // sens / over : ONT de la classe
+  /**
+   * Budget optique d'une liaison : budget = P émise − sensibilité ; pertes admissibles = budget − marge de sécurité.
+   * `loss` = pertes calculées (null si inconnues, ex. panne cachée) ; `classe` = classe GPON de l'OLT (ou null).
+   */
+  function budgetOf(tx, sens, loss, classe, marge = WEAK_MARGIN) {
+    const r2 = x => Math.round(x * 100) / 100;
+    const budget = r2(tx - sens), admissible = r2(budget - marge);
+    const known = loss !== null && loss !== undefined && Number.isFinite(loss);
+    const cl = classe && GPON_CLASSES[classe] ? Object.assign({ nom: classe }, GPON_CLASSES[classe]) : null;
+    return {
+      tx, sens, marge, budget, admissible,
+      pertes: known ? r2(loss) : null,
+      reste: known ? r2(budget - loss) : null,                       // = marge réelle de la liaison
+      utilise: known && budget > 0 ? Math.round(loss / budget * 1000) / 10 : null,   // % du budget consommé
+      tient: known ? loss <= admissible + 1e-9 : null,               // pertes ≤ pertes admissibles
+      classe: cl, classeOk: cl && known ? loss <= cl.max + 1e-9 : null
+    };
+  }
   const WEAK_MARGIN = 3;          // marge minimale conseillée (dB)
   const VFL_RANGE = 5000;         // portée d'un stylo optique (m)
   const ETH_MAX = 100;            // longueur max d'un lien cuivre Cat6 (m)
@@ -159,7 +179,7 @@
         { key: 'txPower', label: 'Puissance d\'émission', type: 'number', min: 0, max: 7, step: 0.5, unit: 'dBm' },
         { key: 'wavelength', label: 'Longueur d\'onde', type: 'select', options: [1490, 1310, 1550], unit: 'nm' },
         { key: 'ponPorts', label: 'Ports PON', type: 'select', options: [1, 2, 4, 8, 16] },
-        { key: 'classe', label: 'Classe optique', type: 'select', options: ['B+', 'C+'] }],
+        { key: 'classe', label: 'Classe GPON (référence du budget)', type: 'select', options: [['B+', 'B+ : 13 à 28 dB'], ['C+', 'C+ : 17 à 32 dB']] }],
       config: [
         { group: 'VLAN de service transportés' },
         vlanField('vlanInternet', 'VLAN Internet'), vlanField('vlanTv', 'VLAN TV (IPTV)'), vlanField('vlanVoip', 'VLAN Téléphonie (VoIP)'),
@@ -879,10 +899,23 @@
       return best ? { res: best, port: bestIdx } : null;
     }
 
-    sensOf(d) {
+    /** Budget optique jusqu'au récepteur `d` pour le chemin `res` (null si pas de source). */
+    budget(d, res) {
+      if (!res || res.dark) return null;
+      const s = this.sensOf(d, res), src = this.dev.get(res.src);
+      return Object.assign(budgetOf(res.tx, s.sens, res.lost ? null : res.loss, src && src.type === 'olt' ? src.props.classe : null), { passive: s.passive });
+    }
+
+    /**
+     * Sensibilité et saturation du récepteur `d`. Un port passif (PTO, ODF…) est jugé avec une ONT de référence :
+     * celle de la classe GPON de l'OLT qui l'alimente (`res`), B+ par défaut.
+     */
+    sensOf(d, res) {
       if (d.type === 'ont' || (d.type === 'switch' && d.props.role === 'acces'))
         return { sens: +d.props.sensitivity, over: +d.props.overload, passive: false };
-      return { sens: REF_SENSITIVITY, over: REF_OVERLOAD, passive: true };
+      const src = res && !res.dark ? this.dev.get(res.src) : null;
+      const ref = src && src.type === 'olt' && GPON_CLASSES[src.props.classe] ? src.props.classe : 'B+';
+      return { sens: GPON_CLASSES[ref].sens, over: GPON_CLASSES[ref].over, passive: true, ref };
     }
 
     /** État synthétique d'un équipement (badge). */
@@ -907,7 +940,7 @@
         if (!b) st = { code: 'nc', label: 'Non raccordé' };
         else if (b.res.dark) st = { code: 'dark', label: 'Pas de source optique en amont' };
         else {
-          const s = this.sensOf(d);
+          const s = this.sensOf(d, b.res);
           const pw = this.power(b.res);
           st = classify(pw, s.sens, s.over, s.passive);
           st.power = pw; st.res = b.res; st.port = b.port;
@@ -956,7 +989,7 @@
       const lostHere = res.lost && res.lostAt === res.segments.length - 1;
       if (res.lost && !lostHere) return { kind: 'opt', code: 'los', lit: false, res };
       const B = this.dev.get(link.b.dev);
-      const s = this.sensOf(B);
+      const s = this.sensOf(B, res);
       const pw = this.power(res);
       const c = lostHere ? { code: 'los', label: 'Coupure' } : classify(pw, s.sens, s.over, s.passive);
       let litFrac = 1;
@@ -1251,6 +1284,7 @@
       if (!sd || !sd.res || sd.res.dark || sd.power === undefined || sd.power === null) return;
       const sr = real.deviceState(d.id);
       rows.push({ id: d.id, name: d.props.name, theo: Math.round(sd.power * 100) / 100, theoLoss: Math.round(sd.res.loss * 100) / 100, tx: sd.res.tx,
+        budget: design.budget(d, sd.res).budget, admissible: design.budget(d, sd.res).admissible,
         real: sr && Number.isFinite(sr.power) ? Math.round(sr.power * 100) / 100 : null, sens: s.sens, over: s.over });
     });
     return rows;
@@ -1291,7 +1325,7 @@
   global.OptiPhysics = {
     ATTENUATION, SPLITTER_LOSS, JOINTS, FAULTS, CABLES, CATALOG, CONNECTORS, CATEGORIES, TERMINALS,
     PROFILES, GPON_DOWN, GPON_UP, ACCESS_MODES, autoSerial,
-    REF_SENSITIVITY, REF_OVERLOAD, WEAK_MARGIN, VFL_RANGE, ETH_MAX, BLD_HEADER,
+    REF_SENSITIVITY, REF_OVERLOAD, WEAK_MARGIN, GPON_CLASSES, budgetOf, VFL_RANGE, ETH_MAX, BLD_HEADER,
     connectorFamily, connectorColor, connectorFormat, bendLoss, faultLoss,
     mduLevels, floorLabel, buildingRect, isRoom, ROOM_COLORS, deviceSize, portPos, assignParents, DEV_W, portsOf, fmt, fmtLen, attFor, classify,
     Engine, otdrShot, otdrBidir, vflInject, RECETTE_SEUILS, recetteVerdict, recetteRows

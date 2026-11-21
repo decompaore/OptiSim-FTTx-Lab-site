@@ -218,7 +218,7 @@
       <table style="width:auto">
         <tr><td>Puissance d'émission</td><td class="answer" style="width:40mm"></td><td>dBm</td></tr>
         <tr><td>Longueur d'onde</td><td class="answer"></td><td>nm</td></tr>
-        <tr><td>Classe optique</td><td class="answer"></td><td></td></tr>
+        <tr><td>Classe GPON</td><td class="answer"></td><td></td></tr>
       </table></li>
     <li>Cliquez sur le SRO et regardez le champ <b>Coupleur intégré</b>. Laissez « 1:8 » pour l'instant.</li>
     <li>Cliquez sur l'ONT : relevez sa <b>sensibilité</b> (−27 dBm) et son seuil de <b>saturation</b> (−8 dBm). Ces deux valeurs bornent la plage de fonctionnement.</li>
@@ -400,8 +400,8 @@
     <tr><th colspan="2">Atténuation totale</th><th class="num">12,72</th></tr>
   </table>
   <figure class="shot">
-    <img src="docs/captures/tutoriels/bilan.jpg" alt="Onglet Bilan optique de l'ONT : pertes par catégorie, total 12,72 dB, puissance reçue −8,72 dBm, statut OK">
-    <figcaption>Le même bilan dans l'onglet « Bilan optique ».</figcaption>
+    <img src="docs/captures/tutoriels/bilan.jpg" alt="Onglet Bilan optique de l'ONT : pertes par catégorie, total 12,72 dB, puissance reçue −8,72 dBm, budget 31 dB, marge 18,28 dB, statut OK">
+    <figcaption>Le même bilan dans l'onglet « Bilan optique », avec le budget optique et la marge.</figcaption>
   </figure>
   </div>
   <p>Puissance reçue : 4 − 12,72 = <b>−8,72 dBm</b>. Marge : −8,72 − (−27) = <b>18,28 dB</b>. L'ONT est dans sa plage [−27 ; −8] dBm : <b>OK</b>, mais proche de la saturation.</p>

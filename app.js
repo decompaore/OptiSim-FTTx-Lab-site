@@ -1206,6 +1206,19 @@
     return { d, port: null };
   }
 
+  /** Jauge du budget optique consommé, et conformité à la classe GPON de l'OLT. */
+  function budgetBarHTML(bu, known) {
+    let h = '';
+    if (known && bu.utilise !== null) {
+      const code = bu.reste < 0 ? 'los' : bu.tient ? 'ok' : 'weak';
+      const adm = Math.max(0, Math.min(100, bu.admissible / bu.budget * 100));
+      h += `<div class="budget-gauge" title="Pertes calculées / budget optique"><div class="bg-track"><i class="st-${code}" style="width:${Math.min(100, Math.max(1, bu.utilise))}%"></i><b style="left:${adm}%" title="Pertes admissibles (marge de sécurité)"></b></div>
+        <small>Budget utilisé : <b>${fmt(bu.utilise, 1)} %</b> — ${bu.reste < 0 ? 'pertes supérieures au budget : le récepteur ne capte pas le signal' : bu.tient ? `il reste ${fmt(bu.reste - bu.marge)} dB avant la marge de sécurité` : 'la marge de sécurité est entamée : signal faible'}</small></div>`;
+    }
+    if (bu.classe) h += `<p class="small muted">Classe GPON <b>${esc(bu.classe.nom)}</b> de l'OLT : affaiblissement du réseau passif entre ${fmt(bu.classe.min, 0)} et ${fmt(bu.classe.max, 0)} dB (norme, pire cas)${known && bu.classeOk !== null ? ` → pertes de ${fmt(bu.pertes)} dB : <b class="st-${bu.classeOk ? 'ok' : 'los'}">${bu.classeOk ? 'conforme' : 'hors classe'}</b>` : ''}.</p>`;
+    return h;
+  }
+
   function bilanHTML() {
     const t = bilanTarget();
     if (!t) return `<div class="insp-head"><div><b>Bilan optique</b><small>Sélectionnez un équipement récepteur (ONT, PTO, switch…) ou un câble.</small></div></div><p class="muted">Le bilan détaille, tronçon par tronçon, toutes les pertes entre la source (OLT / switch) et le point choisi : NRO, extérieur, ODF/PMI, colonne montante, PBO d'étage et branchement abonné.</p>` + recetteHTML();
@@ -1248,21 +1261,27 @@
     }
     h += '</table>';
     if (hiddenFault) h += '<p class="muted small">Une perte inconnue (panne cachée) est présente : utilisez les instruments pour la localiser.</p>';
-    const sens = E.sensOf(d);
+    const sens = E.sensOf(d, res);
     const pw = E.power(res);
     const shownLoss = hiddenFault ? null : total;
     h += `<table class="kv summary"><tr><td>Σ pertes${res.lost ? ' (avant coupure)' : ''}</td><td class="num">${shownLoss === null ? '?' : fmt(shownLoss, 2) + ' dB'}</td></tr>
       <tr><td>Longueur optique totale</td><td class="num">${fmtLen(Math.round(res.length * 10) / 10)}</td></tr>`;
     if (!res.dark) {
       h += `<tr><td>${recette ? 'Puissance calculée' : 'Puissance reçue'}</td><td class="num"><b>${res.lost ? 'LOS' : hiddenFault ? '→ mesurer' : dbm(pw)}</b></td></tr>
-        <tr><td>Sensibilité ${sens.passive ? '(réf. ONT B+)' : ''}</td><td class="num">${dbm(sens.sens)}</td></tr>`;
+        <tr><td>Sensibilité ${sens.passive ? `(réf. ONT ${sens.ref})` : ''}</td><td class="num">${dbm(sens.sens)}</td></tr>`;
+      const bu = E.budget(d, res);
+      h += `<tr class="budget"><td title="Pertes que la liaison peut supporter avant que le récepteur ne décroche">Budget optique <small>(P émise − sensibilité)</small></td><td class="num"><b>${fmt(bu.budget)} dB</b></td></tr>
+        <tr><td>Pertes admissibles <small>(budget − marge ${fmt(bu.marge, 0)} dB)</small></td><td class="num">${fmt(bu.admissible)} dB</td></tr>`;
       if (!res.lost && !hiddenFault) {
         const st = P.classify(pw, sens.sens, sens.over, sens.passive);
-        h += `<tr><td>Marge</td><td class="num">${fmt(pw - sens.sens)} dB</td></tr><tr><td>Statut</td><td class="num">${statusPill(st)}</td></tr>`;
+        h += `<tr><td>Marge <small>(budget − pertes)</small></td><td class="num">${fmt(pw - sens.sens)} dB</td></tr><tr><td>Statut</td><td class="num">${statusPill(st)}</td></tr>`;
       }
+      h += '</table>' + budgetBarHTML(bu, !res.lost && !hiddenFault);
+    } else h += '</table>';
+    if (!res.dark && !res.lost && !hiddenFault) {
+      const bu = E.budget(d, res);
+      h += `<p class="formula">P<sub>rx</sub> = ${dbm(res.tx)} − ${fmt(total)} dB = <b>${dbm(pw)}</b><br>Budget = ${dbm(res.tx)} − (${dbm(sens.sens)}) = ${fmt(bu.budget)} dB<br>Marge = ${fmt(bu.budget)} − ${fmt(total)} = <b>${fmt(bu.reste)} dB</b></p>`;
     }
-    h += '</table>';
-    if (!res.dark && !res.lost && !hiddenFault) h += `<p class="formula">P<sub>rx</sub> = ${dbm(res.tx)} − ${fmt(total)} dB = <b>${dbm(pw)}</b></p>`;
     if (res.lost) h += `<div class="alert err">Signal interrompu : ${esc(res.segments[res.lostAt].label)}.</div>`;
     return h;
   }
@@ -1324,11 +1343,11 @@
     const who = [prev.prenom, prev.nom].filter(Boolean).join(' ');
     let nOk = 0, nKo = 0, nMiss = 0;
     let h = `<h1>Rapport de recette optique</h1><p class="small">Réseau : <b>${esc(blds)}</b> · ${esc(new Date().toLocaleString('fr-FR'))} · Technicien : ${who ? esc(who) : '..............................'}${rc.actif ? ' · mesures sur réseau réel (mode recette réaliste)' : ''}</p>`;
-    h += '<h2>1. Puissance reçue (photomètre)</h2><table><tr><th>Récepteur</th><th>Emplacement</th><th>Calcul (dBm)</th><th>Mesure (dBm)</th><th>Écart (dB)</th><th>Conclusion</th></tr>';
+    h += '<h2>1. Puissance reçue (photomètre)</h2><table><tr><th>Récepteur</th><th>Emplacement</th><th>Budget (dB)</th><th>Calcul (dBm)</th><th>Mesure (dBm)</th><th>Écart (dB)</th><th>Conclusion</th></tr>';
     rows.forEach(r => {
       const m = rc.mesures[r.id], v = P.recetteVerdict(r.theo, m, r.sens, r.over, seuils);
       if (!v) nMiss++; else if (v.code === 'ok') nOk++; else nKo++;
-      h += `<tr><td>${esc(r.name)}</td><td>${esc(locationText(devById(r.id)) || '—')}</td><td class="num">${fmt(r.theo)}</td><td class="num">${m === undefined ? '—' : fmt(m)}</td><td class="num">${v ? (v.ecart > 0 ? '+' : '') + fmt(v.ecart) : '—'}</td><td class="${v ? 'st-' + v.code : ''}">${v ? esc(v.label) : 'non mesuré'}</td></tr>`;
+      h += `<tr><td>${esc(r.name)}</td><td>${esc(locationText(devById(r.id)) || '—')}</td><td class="num">${fmt(r.budget)}<br><small>admis. ${fmt(r.admissible)}</small></td><td class="num">${fmt(r.theo)}</td><td class="num">${m === undefined ? '—' : fmt(m)}</td><td class="num">${v ? (v.ecart > 0 ? '+' : '') + fmt(v.ecart) : '—'}</td><td class="${v ? 'st-' + v.code : ''}">${v ? esc(v.label) : 'non mesuré'}</td></tr>`;
     });
     h += '</table>';
     h += '<h2>2. Réflectométrie (OTDR bidirectionnel)</h2>';
@@ -1675,13 +1694,14 @@
       key = pref ? pref.side + pref.idx : null;
     }
     const cur = rd.find(x => x.side + x.idx === key);
-    const sens = S.engine.sensOf(d);
+    // Port de sortie : jugé comme un port passif (ONT de référence de la classe de l'OLT)
+    const sens = cur && cur.side === 'out' ? S.engine.sensOf({ type: 'pto' }, cur.res) : S.engine.sensOf(d, cur && cur.res);
     let lcd;
     if (!cur) lcd = '<div class="lcd"><div class="lcd-main">— — —</div><div class="lcd-sub">Aucun port optique</div></div>';
     else {
       const r = cur.res;
       const pw = cur.power;
-      const st = !r ? { code: 'los', label: 'LOS (port non alimenté)' } : r.dark ? { code: 'los', label: 'LOS (pas de source)' } : P.classify(pw, cur.side === 'in' ? sens.sens : -27, cur.side === 'in' ? sens.over : -8, cur.side === 'out' || sens.passive);
+      const st = !r ? { code: 'los', label: 'LOS (port non alimenté)' } : r.dark ? { code: 'los', label: 'LOS (pas de source)' } : P.classify(pw, sens.sens, sens.over, sens.passive);
       lcd = `<div class="lcd st-${st.code}">
         <div class="lcd-row"><span>λ ${r && !r.dark ? r.lambda : '----'} nm</span><span>${esc(cur.label)}</span></div>
         <div class="lcd-main">${pw === null ? 'LOS' : fmt(pw)}<small>${pw === null ? '' : ' dBm'}</small></div>
@@ -1690,7 +1710,7 @@
     }
     let h = `<div class="fc-head"><b>Photomètre — ${esc(d.props.name)}</b><button class="btn icon small" data-ia="close" aria-label="Fermer">✕</button></div>${lcd}`;
     h += `<div class="pm-ports">${rd.map(x => `<button class="pm-port ${x.side + x.idx === key ? 'active' : ''}" data-key="${x.side + x.idx}"><span>${x.side === 'in' ? '⇥' : '↦'} ${esc(x.label)}</span><b class="st-${x.power === null ? 'los' : P.classify(x.power, -27, -8, true).code}">${x.power === null ? 'LOS' : fmt(x.power)}</b></button>`).join('')}</div>`;
-    h += `<p class="muted small">Réf. : sensibilité ${dbm(sens.sens)}${sens.passive ? ' (ONT B+)' : ''}, saturation ${dbm(sens.over)}.</p>`;
+    h += `<p class="muted small">Réf. : sensibilité ${dbm(sens.sens)}${sens.passive ? ` (ONT ${sens.ref})` : ''}, saturation ${dbm(sens.over)}.</p>`;
     return h;
   }
 
@@ -2144,6 +2164,7 @@
       $('#modeSwitch [data-mode="fault"]').textContent = 'Dépannage';
     }
     $('#edition').textContent = TEACHER ? 'Version enseignant' : 'Version élève';
+    $('#edition').title = 'OptiSim FTTx Lab ' + ((window.OptiEdition && window.OptiEdition.numero) || '') + ' — ' + SIGNATURE;
     document.body.classList.add(TEACHER ? 'ed-enseignant' : 'ed-eleve');
     const th = store.get('optisim-theme');
     if (th) document.documentElement.dataset.theme = th;
