@@ -1,4 +1,4 @@
-OptiSim FTTx Lab — version enseignant protégée
+OptiSim FTTx Lab 1.0.1 — version enseignant protégée
 Auteur : Hassami COMPAORE — decompaore@gmail.com — Tél. / WhatsApp : +226 79 00 03 04
 
 Ouvrir index.html puis saisir le mot de passe de l'établissement. Fonctionne aussi hors ligne.

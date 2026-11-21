@@ -90,23 +90,46 @@
     const t = { devices: [], links: [] };
     if (topo && topo.recette) t.recette = normRecette(topo.recette);
     if (topo && topo.projet && typeof topo.projet === 'object') t.projet = Object.assign({}, topo.projet);
+    // Fichier chargé = donnée non sûre : identifiants limités à [A-Za-z0-9_-], valeurs numériques forcées
+    // (ils sont injectés dans des attributs HTML/SVG sans échappement).
+    const safeId = v => (typeof v === 'string' && /^[\w-]{1,64}$/.test(v) ? v : null);
+    const num = v => (isFinite(+v) ? +v : 0);
+    const remap = new Map();
     for (const d of (topo && topo.devices) || []) {
       const def = CATALOG[d.type];
       if (!def) continue;
-      const nd = { id: d.id || uid(d.type), type: d.type, x: +d.x || 0, y: +d.y || 0, props: Object.assign(clone(def.defaults), clone(d.props || {})) };
+      let id = safeId(d.id);
+      if (!id || remap.has(id)) { id = uid(d.type); if (d.id != null && !remap.has(d.id)) remap.set(d.id, id); }
+      else remap.set(id, id);
+      const nd = { id, type: d.type, x: +d.x || 0, y: +d.y || 0, props: Object.assign(clone(def.defaults), clone(d.props || {})) };
+      // Champs numériques du catalogue (props et configuration) : toujours des nombres
+      for (const f of [].concat(def.props || [], def.config || [])) if (f && f.type === 'number' && f.key in nd.props) nd.props[f.key] = num(nd.props[f.key]);
       if (nd.type === 'ont' && !nd.props.sn) nd.props.sn = P.autoSerial(nd.id);
       if (def.container) {
         nd.w = +d.w || (d.type === 'bld_mdu' ? 620 : d.type === 'local' ? 220 : 360);
         if (d.type === 'bld_mdu') nd.floorPx = +d.floorPx || 170; else nd.h = +d.h || (d.type === 'local' ? 120 : 230);
       }
-      if (d.fault && d.fault.type) nd.fault = Object.assign({}, d.fault);
+      if (d.fault && P.FAULTS[d.fault.type]) nd.fault = { type: d.fault.type, hidden: !!d.fault.hidden };
       if (d.cfgFault && SV.CFG_FAULTS[d.cfgFault.type]) nd.cfgFault = clone(d.cfgFault);
       t.devices.push(nd);
     }
-    const ids = new Set(t.devices.map(d => d.id));
+    const linkIds = new Set();
     for (const l of (topo && topo.links) || []) {
-      if (!CABLES[l.type] || !l.a || !l.b || !ids.has(l.a.dev) || !ids.has(l.b.dev)) continue;
-      t.links.push(Object.assign(JSON.parse(JSON.stringify(CABLES[l.type].defaults)), JSON.parse(JSON.stringify(l)), { id: l.id || uid('L') }));
+      if (!l || !CABLES[l.type] || !l.a || !l.b || !remap.has(l.a.dev) || !remap.has(l.b.dev)) continue;
+      const nl = Object.assign(JSON.parse(JSON.stringify(CABLES[l.type].defaults)), JSON.parse(JSON.stringify(l)));
+      let id = safeId(l.id);
+      if (!id || linkIds.has(id)) id = uid('L');
+      linkIds.add(id);
+      nl.id = id;
+      nl.a = { dev: remap.get(l.a.dev), port: Math.max(0, Math.floor(num(l.a.port))) };
+      nl.b = { dev: remap.get(l.b.dev), port: Math.max(0, Math.floor(num(l.b.port))) };
+      nl.length = Math.max(0, num(nl.length));
+      for (const k of ['jointA', 'jointB']) if (nl[k] != null && !P.JOINTS[nl[k]]) nl[k] = 'none';
+      if (nl.connector != null && !P.CONNECTORS.includes(nl.connector)) delete nl.connector;
+      if (nl.fibers != null) nl.fibers = Math.max(1, Math.floor(num(nl.fibers)) || 1);
+      if (nl.fault) nl.fault = P.FAULTS[nl.fault.type] ? Object.assign({}, nl.fault, { pos: num(nl.fault.pos), hidden: !!nl.fault.hidden }) : undefined;
+      if (!nl.fault) delete nl.fault;
+      t.links.push(nl);
     }
     sanitizeLinks(t);
     return t;
@@ -808,7 +831,7 @@
     if (type === 'patch') body += `<label>Connecteurs<select id="cdConn">${P.CONNECTORS.map(x => `<option ${x === (A.props.connector || B.props.connector || 'SC/APC') ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label>Type<select id="cdDuplex"><option>Simplex</option><option>Duplex</option></select></label>`;
     if (opt && type !== 'patch') body += `<label>Capacité du câble<select id="cdFibers">${[1, 2, 4, 6, 12, 24, 48, 72, 144].map(n => `<option ${n === def.fibers ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
     body += '</div>';
-    if (B.parent && devById(B.parent).type === 'bld_simple' && A.parent !== B.parent && opt && type !== 'patch') body += `<p class="tip">Ce câble entre dans « ${esc(devById(B.parent).props.name)} » : la gaine intérieure (${devById(B.parent).props.gaineLength} m) sera ajoutée automatiquement.</p>`;
+    if (B.parent && devById(B.parent).type === 'bld_simple' && A.parent !== B.parent && opt && type !== 'patch') body += `<p class="tip">Ce câble entre dans « ${esc(devById(B.parent).props.name)} » : la gaine intérieure (${fmt(+devById(B.parent).props.gaineLength || 0, 0)} m) sera ajoutée automatiquement.</p>`;
     openModal(`Nouveau câble : ${c.label}`, body, [
       { label: 'Annuler', action: closeModal },
       { label: 'Créer le câble', primary: true, action: () => {
@@ -924,7 +947,7 @@
         const lv = mduLevels(d);
         h += `<tr><td>Niveaux</td><td>${lv.length} (${lv[lv.length - 1].label} → ${lv[0].label})</td></tr><tr><td>Hauteur totale</td><td>${fmt(lv.length * d.props.floorHeight, 1)} m</td></tr>`;
         lv.forEach(l => { const n = kids.filter(k => k.floor === l.floor).length, rl = rooms.filter(k => k.floor === l.floor); if (n || rl.length) h += `<tr><td>${l.label}</td><td>${n} équipement(s)${rl.length ? ' · ' + rl.map(x => esc(x.props.name)).join(', ') : ''}</td></tr>`; });
-      } else h += `<tr><td>Gaine intérieure</td><td>${d.props.gaineLength} m (ajoutée aux câbles entrants)</td></tr>`;
+      } else h += `<tr><td>Gaine intérieure</td><td>${fmt(+d.props.gaineLength || 0, 0)} m (ajoutée aux câbles entrants)</td></tr>`;
       if (d.type !== 'bld_mdu' && rooms.length) h += `<tr><td>Locaux</td><td>${rooms.map(x => `<a href="#" data-sel-dev="${x.id}">${esc(x.props.name)}</a>`).join(', ')}</td></tr>`;
       h += `<tr><td>Équipements</td><td>${kids.length}</td></tr><tr><td>Taille</td><td>${Math.round(r.w)} × ${Math.round(r.h)} px</td></tr></table></div>`;
       h += `<div class="row"><button class="btn danger" data-act="delete">Supprimer le bâtiment</button></div>`;
@@ -950,7 +973,7 @@
       if (p.kind === 'opt') {
         const r = side === 'in' ? (link ? S.engine.traceIn(d.id, k) : null) : S.engine.traceOut(d.id, k);
         const v = S.engine.power(r);
-        if (link || side === 'out') pw = r ? (r.dark ? '<span class="muted">sombre</span>' : `<span class="st-${P.classify(v, -27, -8, true).code}">${dbm(v)}</span>`) : '';
+        if (link || side === 'out') pw = r ? (r.dark ? '<span class="muted">sombre</span>' : `<span class="st-${portCode(d, side, r, v)}">${dbm(v)}</span>`) : '';
       }
       if (link || ports[side].length <= 16) rows.push(`<tr><td><span class="pdot ${p.kind}"></span>${esc(p.label)}</td><td>${peer}</td><td class="num">${pw}</td></tr>`);
     };
@@ -1282,7 +1305,13 @@
       const bu = E.budget(d, res);
       h += `<p class="formula">P<sub>rx</sub> = ${dbm(res.tx)} − ${fmt(total)} dB = <b>${dbm(pw)}</b><br>Budget = ${dbm(res.tx)} − (${dbm(sens.sens)}) = ${fmt(bu.budget)} dB<br>Marge = ${fmt(bu.budget)} − ${fmt(total)} = <b>${fmt(bu.reste)} dB</b></p>`;
     }
-    if (res.lost) h += `<div class="alert err">Signal interrompu : ${esc(res.segments[res.lostAt].label)}.</div>`;
+    const avis = E.classeAvis(d, res);
+    if (avis) h += `<div class="alert warn">${esc(avis)}</div>`;
+    if (res.lost) {
+      const cause = res.segments[res.lostAt];
+      const cache = cause.items.some(it => !isFinite(it.loss) && it.hidden);
+      h += `<div class="alert err">Signal interrompu : ${cache ? 'aucune lumière ne parvient au récepteur (utilisez les instruments pour localiser la coupure)' : esc(cause.label)}.</div>`;
+    }
     return h;
   }
 
@@ -1684,6 +1713,12 @@
     instr.hidden = true;
   }
 
+  /** Statut d'un port optique : entrée jugée par le récepteur, sortie par l'ONT de référence de la classe de l'OLT. */
+  function portCode(d, side, r, v) {
+    const s = side === 'out' ? S.engine.sensOf({ type: 'pto' }, r) : S.engine.sensOf(d, r);
+    return P.classify(v, s.sens, s.over, s.passive).code;
+  }
+
   function pmHTML() {
     const d = devById(S.pm.devId);
     const rd = S.engine.portReadings(d.id).filter(x => x.linked || x.side === 'out');
@@ -1709,7 +1744,7 @@
         <div class="lcd-status">${esc(st.label)}</div></div>`;
     }
     let h = `<div class="fc-head"><b>Photomètre — ${esc(d.props.name)}</b><button class="btn icon small" data-ia="close" aria-label="Fermer">✕</button></div>${lcd}`;
-    h += `<div class="pm-ports">${rd.map(x => `<button class="pm-port ${x.side + x.idx === key ? 'active' : ''}" data-key="${x.side + x.idx}"><span>${x.side === 'in' ? '⇥' : '↦'} ${esc(x.label)}</span><b class="st-${x.power === null ? 'los' : P.classify(x.power, -27, -8, true).code}">${x.power === null ? 'LOS' : fmt(x.power)}</b></button>`).join('')}</div>`;
+    h += `<div class="pm-ports">${rd.map(x => `<button class="pm-port ${x.side + x.idx === key ? 'active' : ''}" data-key="${x.side + x.idx}"><span>${x.side === 'in' ? '⇥' : '↦'} ${esc(x.label)}</span><b class="st-${x.power === null ? 'los' : portCode(d, x.side, x.res, x.power)}">${x.power === null ? 'LOS' : fmt(x.power)}</b></button>`).join('')}</div>`;
     h += `<p class="muted small">Réf. : sensibilité ${dbm(sens.sens)}${sens.passive ? ` (ONT ${sens.ref})` : ''}, saturation ${dbm(sens.over)}.</p>`;
     return h;
   }

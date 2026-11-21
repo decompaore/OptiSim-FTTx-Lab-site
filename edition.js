@@ -10,6 +10,6 @@
   const auteur = { nom: 'Hassami COMPAORE', email: 'decompaore@gmail.com', tel: '+226 79 00 03 04' };
   auteur.signature = `${auteur.nom} · ${auteur.email} · Tél. / WhatsApp : ${auteur.tel}`;
   // Numéro de version (NOTES-DE-VERSION.md, étiquette git vX.Y.Z)
-  const numero = '1.0.0';
+  const numero = '1.0.1';
   global.OptiEdition = { role: 'eleve', numero, auteur };
 })(typeof window !== 'undefined' ? window : globalThis);

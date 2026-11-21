@@ -10,6 +10,8 @@
   'use strict';
   const P = global.OptiPhysics;
   const { PROFILES, GPON_DOWN, GPON_UP, portsOf, fmt } = P;
+  /** Libellé d'un profil, « ? » s'il est inconnu (fichier d'une autre version ou modifié à la main). */
+  const profLabel = k => (PROFILES[k] ? PROFILES[k].label : '?');
 
   /** Service utilisé par chaque type de terminal. */
   const TERMINAL_SERVICE = { pc: 'internet', tv: 'tv', phone: 'voip' };
@@ -173,7 +175,7 @@
           let next = a;
           for (const { t } of dhcpKids) {
             if (err) { plan.set(t.id, { ok: false, reason: err }); continue; }
-            while (next <= b && (used.has(next) || next === broadcastOf(boxIp, pre))) next++;
+            while (next <= b && (used.has(next) || next === broadcastOf(boxIp, pre) || next === netOf(boxIp, pre))) next++;
             if (next > b) { plan.set(t.id, { ok: false, reason: 'Plage DHCP épuisée : plus d\'adresse disponible' }); continue; }
             used.set(next, t.props.name);
             plan.set(t.id, { ok: true, ip: intToIp(next), prefix: pre, gw: intToIp(boxIp), how: 'DHCP' });
@@ -232,11 +234,11 @@
       // 2. Authentification → profil
       if (isAon) {
         const n = oi.port + 1;
-        if (!step('Port du switch AON', oi.auth.ok, oi.auth.ok ? `Port SFP ${n} de ${head.props.name} activé — profil « ${PROFILES[oi.profile].label} »` : `Port SFP ${n} de ${head.props.name} désactivé : activez-le dans la configuration du switch.`, `Aucun trafic sur le port SFP ${n} de ${head.props.name}.`)) { fail(steps[steps.length - 1].detail); continue; }
+        if (!step('Port du switch AON', oi.auth.ok, oi.auth.ok ? `Port SFP ${n} de ${head.props.name} activé — profil « ${profLabel(oi.profile)} »` : `Port SFP ${n} de ${head.props.name} désactivé : activez-le dans la configuration du switch.`, `Aucun trafic sur le port SFP ${n} de ${head.props.name}.`)) { fail(steps[steps.length - 1].detail); continue; }
       } else {
         const okA = oi.auth.ok;
         const detail = okA
-          ? (oi.auth.how === 'auto' ? `Autorisation automatique sur ${head.props.name} — profil « ${PROFILES[oi.profile].label} »` : `SN ${oi.sn} déclaré sur ${head.props.name} — profil « ${PROFILES[oi.profile] ? PROFILES[oi.profile].label : '?'} »`)
+          ? (oi.auth.how === 'auto' ? `Autorisation automatique sur ${head.props.name} — profil « ${profLabel(oi.profile)} »` : `SN ${oi.sn} déclaré sur ${head.props.name} — profil « ${profLabel(oi.profile)} »`)
           : `ONT non autorisée : le numéro de série ${oi.sn} n'est pas déclaré sur ${head.props.name}.`;
         if (!step('Autorisation de l\'ONT sur l\'OLT', okA, detail, `ONT ${oi.sn} détectée sur le port PON ${oi.port + 1} mais refusée par ${head.props.name}.`)) { fail(steps[steps.length - 1].detail); continue; }
       }

@@ -151,8 +151,10 @@
   function makeLot(topo, eleves, opts) {
     const o = Object.assign({ optiques: 1, config: 0, meta: {} }, opts || {});
     const lot = newId();
-    const noms = eleves.map(x => String(x).trim()).filter(Boolean).filter((x, i, a) => a.indexOf(x) === i);
-    const files = [], rows = [['Élève', 'Fichier', 'Pannes']], seen = new Set();
+    const tous = eleves.map(x => String(x).trim()).filter(Boolean);
+    const noms = tous.filter((x, i, a) => a.indexOf(x) === i);
+    const doublons = tous.filter((x, i, a) => a.indexOf(x) !== i);   // signalés à l'enseignant (un seul sujet par nom)
+    const files = [], rows = [['Élève', 'Fichier', 'Pannes']], seen = new Set(), usedNames = new Set();
     noms.forEach(nom => {
       let t, sig, k = 0;
       do { // évite deux sujets identiques quand c'est possible
@@ -163,13 +165,19 @@
       seen.add(sig);
       if (!t.recette) delete t.recette;
       const file = makeSujet(t, Object.assign({}, o.meta, { eleve: nom, lot }));
-      const name = `sujet-${slugify(file.title)}-${slugify(nom)}.json`;
+      // Noms de fichier uniques : « Ouédraogo » et « OUEDRAOGO » donneraient le même fichier (écrasé dans le dossier)
+      const base = `sujet-${slugify(file.title)}-${slugify(nom)}`;
+      let name = base + '.json';
+      for (let n = 2; usedNames.has(name.toLowerCase()); n++) name = `${base}-${n}.json`;
+      usedNames.add(name.toLowerCase());
       files.push({ name, text: JSON.stringify(file) });
       rows.push([nom, name, listFaults(t).map(f => `${f.label} — ${f.where}`).join(' | ')]);
     });
-    const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    // Cellule commençant par = + - @ : préfixée d'une apostrophe (pas de formule dans le tableur)
+    const cell = v => { const x = String(v); return `"${(/^[=+\-@]/.test(x) ? "'" + x : x).replace(/"/g, '""')}"`; };
+    const csv = '\ufeff' + rows.map(r => r.map(cell).join(';')).join('\r\n');
     files.push({ name: 'CORRIGE-ne-pas-distribuer.csv', text: csv });
-    return { lot, count: noms.length, files, zip: zipFiles(files) };
+    return { lot, count: noms.length, doublons, files, zip: zipFiles(files) };
   }
 
   /* ---------------- Archive .zip (sans compression) ---------------- */

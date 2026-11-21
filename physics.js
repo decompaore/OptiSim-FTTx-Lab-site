@@ -561,7 +561,7 @@
     return (+n).toFixed(dec).replace('.', ',');
   }
   function fmtLen(m) {
-    if (m >= 1000) return fmt(m / 1000, m % 1000 === 0 ? 0 : 3).replace(/,?0+$/, '') + ' km';
+    if (m >= 1000) return (m % 1000 === 0 ? fmt(m / 1000, 0) : fmt(m / 1000, 3).replace(/0+$/, '').replace(/,$/, '')) + ' km';
     return fmt(m, m % 1 === 0 ? 0 : 1) + ' m';
   }
   function attFor(cableType, lambda) {
@@ -918,6 +918,18 @@
       return { sens: GPON_CLASSES[ref].sens, over: GPON_CLASSES[ref].over, passive: true, ref };
     }
 
+    /**
+     * Avertissement si une ONT est moins sensible que l'ONT de référence de la classe GPON de son OLT
+     * (ex. ONT B+ −27 dBm sur un OLT C+ : les ports passifs sont jugés à −30 dBm, l'ONT décroche avant). Sinon null.
+     */
+    classeAvis(d, res) {
+      if (!d || d.type !== 'ont' || !res || res.dark) return null;
+      const src = this.dev.get(res.src);
+      const cl = src && src.type === 'olt' ? GPON_CLASSES[src.props.classe] : null;
+      if (!cl || !(+d.props.sensitivity > cl.sens)) return null;
+      return `Sensibilité de l'ONT (${fmt(+d.props.sensitivity, 1)} dBm) moins bonne que celle d'une ONT de classe ${src.props.classe} (${fmt(cl.sens, 1)} dBm) : avec un OLT ${src.props.classe}, choisissez des ONT de la même classe, sinon l'ONT peut perdre le signal alors que la PTO est jugée correcte.`;
+    }
+
     /** État synthétique d'un équipement (badge). */
     deviceState(devId) {
       if (this.stateMemo.has(devId)) return this.stateMemo.get(devId);
@@ -988,10 +1000,14 @@
       const last = res.segments[res.segments.length - 1];
       const lostHere = res.lost && res.lostAt === res.segments.length - 1;
       if (res.lost && !lostHere) return { kind: 'opt', code: 'los', lit: false, res };
+      // Coupure cachée : seul le symptôme (LOS) est visible, ni son nom ni sa position sur le câble.
+      if (lostHere && last.items.some(it => !isFinite(it.loss) && it.hidden)) return { kind: 'opt', code: 'los', label: 'LOS', lit: false, res };
       const B = this.dev.get(link.b.dev);
       const s = this.sensOf(B, res);
       const pw = this.power(res);
-      const c = lostHere ? { code: 'los', label: 'Coupure' } : classify(pw, s.sens, s.over, s.passive);
+      // Panne révélée : son nom court (« Coupure », « Inversion »)
+      const cause = lostHere ? last.items.find(it => !isFinite(it.loss) && it.fault) : null;
+      const c = lostHere ? { code: 'los', label: cause ? FAULTS[cause.kind.replace('fault-', '')].short : 'Coupure' } : classify(pw, s.sens, s.over, s.passive);
       let litFrac = 1;
       if (lostHere) {
         const cutItem = last.items.find(it => !isFinite(it.loss));
