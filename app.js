@@ -2014,14 +2014,14 @@
     const ro = nm ? ' readonly' : '';
     openModal('Examen — Passer un examen', `<div class="modal-pad exam-pass">
       <ol class="exam-howto">
-        <li>Choisissez le fichier <b>sujet-….json</b> remis par votre enseignant (clé USB, dossier partagé, ENT…).</li>
-        <li>Lisez le résumé et les consignes, puis indiquez votre <b>nom</b>, votre <b>prénom</b> et votre <b>classe</b>.</li>
-        <li>Cliquez sur <b>« Commencer l'examen »</b> : le temps démarre et le réseau est <b>verrouillé</b> (ni ajout, ni suppression, ni déplacement). Localisez les défauts avec le photomètre, l'OTDR, le VFL et l'onglet « Configuration », puis intervenez en mode « ${esc(MODE_LABELS.fault)} ». Vos actions sont enregistrées ; chaque intervention inutile est pénalisée.</li>
-        <li>À la fin, cliquez sur <b>« Rendre ma copie »</b> (barre supérieure, ou <kbd>Ctrl</kbd>+<kbd>S</kbd>) et remettez le fichier <b>copie-….json</b> à votre enseignant.</li>
+        <li>Chargez le fichier <b>sujet</b> fourni par votre enseignant (clé USB, dossier partagé…) : ci-dessous, ou bouton <b>Ouvrir</b> de la barre supérieure.</li>
+        <li>Indiquez votre <b>nom</b>, votre <b>prénom</b> et votre <b>classe</b>, puis cliquez sur <b>« Commencer l'examen »</b> : le chronomètre démarre.</li>
+        <li>Pendant l'examen, le réseau est <b>verrouillé</b> (ni ajout, ni suppression, ni déplacement) et vos actions sont enregistrées. Les <b>consignes</b> restent accessibles dans la barre supérieure.</li>
+        <li>À la fin, cliquez sur <b>« Rendre ma copie »</b> (barre supérieure, ou <kbd>Ctrl</kbd>+<kbd>S</kbd>) : un fichier <code>copie-NOM-PRENOM-….json</code> est enregistré. Remettez-le à votre enseignant.</li>
       </ol>
       <div class="exam-box">
         <label>Fichier sujet<input type="file" id="epFile" accept=".json,application/json"></label>
-        ${s ? `<div class="alert ok" id="epResume">Sujet chargé : <b>${esc(s.title)}</b> — durée ${s.duree ? esc(s.duree) + ' min' : 'libre'} · dépannage sur réseau verrouillé</div>` : '<p class="muted small">Aucun sujet choisi.</p>'}
+        ${s ? `<div class="alert ok" id="epResume">Sujet chargé : <b>${esc(s.title)}</b> — durée ${s.duree ? esc(s.duree) + '&nbsp;min' : 'libre'} · réseau verrouillé</div>` : '<p class="muted small">Aucun sujet choisi.</p>'}
         ${nm ? `<div class="alert warn" id="epNominatif">Sujet nominatif : <b>${esc(s.eleve)}</b>. Si ce n'est pas votre nom, signalez-le à votre enseignant.</div>` : ''}
         ${s && s.consignes ? `<div class="exam-consignes"><b>Consignes</b><div class="pre">${esc(s.consignes)}</div></div>` : ''}
         <div class="form-grid ident"><label>Nom<input type="text" id="epNom" value="${esc(id.nom)}" autocomplete="off"${ro}></label><label>Prénom<input type="text" id="epPrenom" value="${esc(id.prenom)}" autocomplete="off"${ro}></label><label>Classe<input type="text" id="epClasse" value="${esc(id.classe)}" autocomplete="off"></label></div>
@@ -2077,14 +2077,11 @@
     if (!S.exam) return;
     const e = S.exam;
     const st = S.examStudent;
-    openModal(`Examen — ${e.title}`, `${st ? `<p><b>${esc(st.prenom)} ${esc(st.nom)}</b> (${esc(st.classe)}) · commencé à ${new Date(S.examStart).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>` : ''}${e.eleve ? `<p><b>Sujet nominatif : ${esc(e.eleve)}</b>. Vérifiez que c'est bien votre nom.</p>` : ''}${e.consignes ? `<p class="pre">${esc(e.consignes)}</p>` : ''}
-      <ul class="small">
-        <li>Durée : ${e.duree ? e.duree + ' min' : 'libre'}.</li>
-        <li>La topologie est <b>verrouillée</b> : vous ne pouvez ni ajouter, ni supprimer, ni déplacer d'équipement.</li>
-        <li>Localisez chaque défaut avec le <b>photomètre</b>, l'<b>OTDR</b>, le <b>VFL</b> et le diagnostic de l'onglet <b>« Configuration »</b>.</li>
-        <li>Pour remettre en état un câble ou un équipement : mode <b>« ${esc(MODE_LABELS.fault)} »</b>, sélection de l'élément, bouton d'intervention. Chaque intervention inutile est pénalisée.</li>
-        <li>Vos mesures et interventions sont enregistrées. À la fin, cliquez sur <b>« Rendre ma copie »</b> et remettez le fichier à votre enseignant.</li>
-      </ul>`, [{ label: 'Commencer', primary: true, action: closeModal }]);
+    const left = e.duree ? e.duree - examElapsed() : null;
+    openModal(`Consignes — ${e.title}`, `<p>${st ? `<b>${esc(st.prenom)} ${esc(st.nom)}</b> (${esc(st.classe)}) · ` : ''}commencé à ${new Date(S.examStart).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · durée ${e.duree ? e.duree + '&nbsp;min' : 'libre'}${left !== null ? ` · temps restant <b>${left > 0 ? left + '&nbsp;min' : 'écoulé'}</b>` : ''}</p>
+      ${e.eleve ? `<p class="small">Sujet nominatif : <b>${esc(e.eleve)}</b>.</p>` : ''}
+      ${e.consignes ? `<div class="exam-consignes"><b>Consignes</b><div class="pre">${esc(e.consignes)}</div></div>` : '<p class="muted small">Pas de consigne particulière.</p>'}
+      <p class="muted small">Le réseau est verrouillé : seuls les mesures, les réglages et les interventions sont permis. Vos actions sont enregistrées. Pour terminer : <b>« Rendre ma copie »</b> dans la barre supérieure, ou <kbd>Ctrl</kbd>+<kbd>S</kbd>.</p>`, [{ label: 'Fermer', primary: true, action: closeModal }]);
   }
   function submitCopy() {
     if (!S.exam) return;
