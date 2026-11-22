@@ -1924,13 +1924,17 @@
     download(JSON.stringify(data, null, 2), `topologie-optisim-${new Date().toISOString().slice(0, 10)}.json`);
     toast('Topologie exportée en JSON.', 'ok');
   }
-  function openFile(file) {
+  /** opts.sujet : fichier choisi par « Passer un examen » (seul un sujet est accepté). */
+  function openFile(file, opts = {}) {
+    const notSujet = () => toast(`« ${file.name} » n'est pas un sujet d'examen. Choisissez le fichier sujet-….json donné par votre enseignant.`, 'err');
     const rd = new FileReader();
     rd.onload = () => {
+      let data;
+      try { data = JSON.parse(rd.result); } catch (e) { return opts.sujet ? notSujet() : toast('Fichier invalide : ce n\'est pas une topologie OptiSim (JSON).', 'err'); }
       try {
-        const data = JSON.parse(rd.result);
         const ex = X.readFile(data);
         if (ex && ex.kind === 'sujet') return confirmReplace(() => startExam(ex.data));
+        if (opts.sujet) return notSujet();
         if (ex && ex.kind === 'copie') {
           if (TEACHER) return openGrading([ex.data]);
           return toast('Ce fichier est une copie d\'élève : seule la version enseignant peut la corriger.', 'err');
@@ -1996,10 +2000,26 @@
     document.body.classList.remove('exam-locked');
     renderExamBar();
   }
+  /** Version élève : bouton « Passer un examen » (explication, puis choix du fichier sujet). */
+  function openPasserExam() {
+    if (S.exam) return showConsignes();
+    openModal('Passer un examen', `<p>Votre enseignant vous a remis un fichier <b>sujet-….json</b> (clé USB, dossier partagé, messagerie…).</p>
+      <ol class="small">
+        <li>Cliquez sur <b>« Choisir le fichier du sujet »</b> et sélectionnez ce fichier.</li>
+        <li>Lisez les consignes : le réseau est <b>verrouillé</b> (ni ajout, ni suppression, ni déplacement) et le temps est affiché en haut.</li>
+        <li>Localisez et corrigez les défauts avec les instruments, le mode « ${esc(MODE_LABELS.fault)} » et l'onglet « Configuration ». Vos actions sont enregistrées.</li>
+        <li>À la fin, cliquez sur <b>« Rendre ma copie »</b> et remettez le fichier copie-….json à votre enseignant.</li>
+      </ol>
+      ${S.topo.devices.length ? '<p class="muted small">La topologie actuelle sera remplacée : sauvegardez-la avant si nécessaire.</p>' : ''}`, [
+      { label: 'Annuler', action: closeModal },
+      { label: 'Choisir le fichier du sujet', primary: true, action: () => { closeModal(); $('#sujetInput').click(); } }
+    ]);
+  }
   function examElapsed() { return S.examStart ? Math.floor((Date.now() - Date.parse(S.examStart)) / 60000) : 0; }
   function renderExamBar() {
     const g = $('#examGroup');
     g.hidden = !S.exam;
+    $('#btnPasserExam').hidden = TEACHER || !!S.exam;
     if (!S.exam) return;
     const el = examElapsed();
     const left = S.exam.duree ? S.exam.duree - el : null;
@@ -2088,6 +2108,8 @@
     $$('#modeSwitch button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
     
     $('#btnExamInfo').addEventListener('click', showConsignes);
+    $('#btnPasserExam').addEventListener('click', openPasserExam);
+    $('#sujetInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) openFile(f, { sujet: true }); e.target.value = ''; });
     $('#btnSubmit').addEventListener('click', submitCopy);
     $('#btnLabs').addEventListener('click', () => openLabs());
     $('#btnEmptyLabs').addEventListener('click', () => openLabs());
