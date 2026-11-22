@@ -491,6 +491,8 @@ tr.budget td { border-top: 1px dashed var(--border); }
 /* ---------- Versions élève / enseignant, examen ---------- */
 .exam-tag { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; background:var(--accent, #0ea5e9); color:#fff; font-weight:600; font-size:12px; white-space:nowrap; }
 .exam-tag.late { background:#dc2626; }
+.exam-tag .who { max-width:160px; overflow:hidden; text-overflow:ellipsis; }
+
 body.exam-locked .pal-item[data-type], body.exam-locked .pal-item[data-cable] { opacity:.4; cursor:not-allowed; }
 .exam-tools section { margin-bottom:18px; }
 .exam-tools textarea { width:100%; box-sizing:border-box; font:inherit; resize:vertical; }
@@ -498,6 +500,16 @@ body.exam-locked .pal-item[data-type], body.exam-locked .pal-item[data-cable] { 
 .grade-table td, .grade-table th { white-space:nowrap; }
 .report .journal td:first-child { white-space:nowrap; }
 .pre { white-space:pre-wrap; }
+.alert.ok { background: rgba(34, 197, 94, .12); border: 1px solid rgba(34, 197, 94, .35); }
+.exam-howto { margin:0 0 12px; padding-left:20px; line-height:1.5; }
+.exam-howto li { margin-bottom:4px; }
+.exam-box { border:1px solid var(--border); border-radius:8px; padding:12px 14px; display:grid; gap:10px; }
+.exam-box input[type=file] { display:block; margin-top:4px; }
+.exam-box .alert { margin:0; }
+.exam-consignes { border-left:3px solid var(--accent); padding:6px 10px; background:color-mix(in srgb, var(--accent) 8%, transparent); border-radius:4px; }
+.form-grid.ident { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+.form-grid.ident input[readonly] { opacity:.75; }
+#modalFoot .btn:disabled { opacity:.5; cursor:not-allowed; }
 .modal-pad { padding:14px 20px; height:100%; overflow:auto; box-sizing:border-box; }
 
 .sb-logout { color: inherit; text-decoration: underline; white-space: nowrap; margin-right: 10px; }

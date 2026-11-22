@@ -1924,17 +1924,16 @@
     download(JSON.stringify(data, null, 2), `topologie-optisim-${new Date().toISOString().slice(0, 10)}.json`);
     toast('Topologie exportée en JSON.', 'ok');
   }
-  /** opts.sujet : fichier choisi par « Passer un examen » (seul un sujet est accepté). */
-  function openFile(file, opts = {}) {
-    const notSujet = () => toast(`« ${file.name} » n'est pas un sujet d'examen. Choisissez le fichier sujet-….json donné par votre enseignant.`, 'err');
+  function openFile(file) {
     const rd = new FileReader();
     rd.onload = () => {
-      let data;
-      try { data = JSON.parse(rd.result); } catch (e) { return opts.sujet ? notSujet() : toast('Fichier invalide : ce n\'est pas une topologie OptiSim (JSON).', 'err'); }
       try {
+        const data = JSON.parse(rd.result);
         const ex = X.readFile(data);
-        if (ex && ex.kind === 'sujet') return confirmReplace(() => startExam(ex.data));
-        if (opts.sujet) return notSujet();
+        if (ex && ex.kind === 'sujet') {
+          if (S.exam) return toast('Un examen est déjà en cours : rendez d\'abord votre copie.', 'warn');
+          pendingSujet = ex.data; return openPasserExam();
+        }
         if (ex && ex.kind === 'copie') {
           if (TEACHER) return openGrading([ex.data]);
           return toast('Ce fichier est une copie d\'élève : seule la version enseignant peut la corriger.', 'err');
@@ -1965,12 +1964,12 @@
     saveExamState();
   }
   function saveExamState() {
-    if (S.exam) store.set(EXAM_KEY, X.encode({ exam: S.exam, start: S.examStart, journal: S.journal }));
+    if (S.exam) store.set(EXAM_KEY, X.encode({ exam: S.exam, student: S.examStudent, start: S.examStart, journal: S.journal }));
   }
   function restoreExamState() {
     const raw = store.get(EXAM_KEY);
     if (!raw) return;
-    try { const o = X.decode(raw); S.exam = o.exam; S.examStart = o.start; S.journal = o.journal || []; document.body.classList.add('exam-locked'); }
+    try { const o = X.decode(raw); S.exam = o.exam; S.examStudent = o.student || null; S.examStart = o.start; S.journal = o.journal || []; document.body.classList.add('exam-locked'); }
     catch (e) { store.del(EXAM_KEY); }
   }
   /** Bloque les modifications de structure pendant un examen. */
@@ -1979,41 +1978,85 @@
     toast('Examen en cours : la topologie est verrouillée (mesures, interventions et réglages seulement).', 'warn');
     return true;
   }
-  function startExam(exam) {
+  function startExam(exam, student) {
     S.exam = exam;
+    S.examStudent = student || null;
     S.examStart = new Date().toISOString();
     S.journal = [];
     S.lab = null; renderTpPanel();
     S.topo = { devices: [], links: [] };
     loadTopology(exam.topo, { undoable: false });
     S.undo = []; S.redo = [];
-    logJ('debut', `Ouverture du sujet « ${exam.title} »`);
+    logJ('debut', `Ouverture du sujet « ${exam.title} »${student ? ` par ${student.prenom} ${student.nom} (${student.classe})` : ''}`);
     document.body.classList.add('exam-locked');
     setMode('test');
     renderExamBar();
-    showConsignes();
+    toast(`Examen commencé${exam.duree ? ` : ${exam.duree} min` : ''}. Les consignes restent accessibles dans la barre supérieure.`, 'ok');
   }
   function endExam() {
     if (!S.exam) return;
-    S.exam = null; S.examStart = null; S.journal = [];
+    S.exam = null; S.examStudent = null; S.examStart = null; S.journal = [];
     store.del(EXAM_KEY);
     document.body.classList.remove('exam-locked');
     renderExamBar();
   }
-  /** Version élève : bouton « Passer un examen » (explication, puis choix du fichier sujet). */
-  function openPasserExam() {
+  /* Page « Passer un examen » (bouton de la version élève, ou « Ouvrir » sur un sujet) :
+     marche à suivre, choix du sujet, résumé et consignes, identité, « Commencer l'examen ». */
+  let pendingSujet = null;   // sujet choisi, examen pas encore commencé
+  let passDraft = {};        // identité en cours de saisie (conservée quand la page est redessinée)
+  function nominatif(s) { const w = String(s.eleve || '').trim().split(/\s+/); return s.eleve ? { nom: w[0] || '', prenom: w.slice(1).join(' ') } : null; }
+  function openPasserExam(msg) {
     if (S.exam) return showConsignes();
-    openModal('Passer un examen', `<p>Votre enseignant vous a remis un fichier <b>sujet-….json</b> (clé USB, dossier partagé, messagerie…).</p>
-      <ol class="small">
-        <li>Cliquez sur <b>« Choisir le fichier du sujet »</b> et sélectionnez ce fichier.</li>
-        <li>Lisez les consignes : le réseau est <b>verrouillé</b> (ni ajout, ni suppression, ni déplacement) et le temps est affiché en haut.</li>
-        <li>Localisez et corrigez les défauts avec les instruments, le mode « ${esc(MODE_LABELS.fault)} » et l'onglet « Configuration ». Vos actions sont enregistrées.</li>
-        <li>À la fin, cliquez sur <b>« Rendre ma copie »</b> et remettez le fichier copie-….json à votre enseignant.</li>
+    const s = pendingSujet, nm = s && nominatif(s);
+    let prev = {};
+    try { prev = JSON.parse(store.get('optisim-eleve') || '{}'); } catch (e) { prev = {}; }
+    const id = Object.assign({ nom: prev.nom || '', prenom: prev.prenom || '', classe: prev.classe || '' }, passDraft, nm || {});
+    const ro = nm ? ' readonly' : '';
+    openModal('Examen — Passer un examen', `<div class="modal-pad exam-pass">
+      <ol class="exam-howto">
+        <li>Choisissez le fichier <b>sujet-….json</b> remis par votre enseignant (clé USB, dossier partagé, ENT…).</li>
+        <li>Lisez le résumé et les consignes, puis indiquez votre <b>nom</b>, votre <b>prénom</b> et votre <b>classe</b>.</li>
+        <li>Cliquez sur <b>« Commencer l'examen »</b> : le temps démarre et le réseau est <b>verrouillé</b> (ni ajout, ni suppression, ni déplacement). Localisez les défauts avec le photomètre, l'OTDR, le VFL et l'onglet « Configuration », puis intervenez en mode « ${esc(MODE_LABELS.fault)} ». Vos actions sont enregistrées ; chaque intervention inutile est pénalisée.</li>
+        <li>À la fin, cliquez sur <b>« Rendre ma copie »</b> (barre supérieure, ou <kbd>Ctrl</kbd>+<kbd>S</kbd>) et remettez le fichier <b>copie-….json</b> à votre enseignant.</li>
       </ol>
-      ${S.topo.devices.length ? '<p class="muted small">La topologie actuelle sera remplacée : sauvegardez-la avant si nécessaire.</p>' : ''}`, [
+      <div class="exam-box">
+        <label>Fichier sujet<input type="file" id="epFile" accept=".json,application/json"></label>
+        ${s ? `<div class="alert ok" id="epResume">Sujet chargé : <b>${esc(s.title)}</b> — durée ${s.duree ? esc(s.duree) + ' min' : 'libre'} · dépannage sur réseau verrouillé</div>` : '<p class="muted small">Aucun sujet choisi.</p>'}
+        ${nm ? `<div class="alert warn" id="epNominatif">Sujet nominatif : <b>${esc(s.eleve)}</b>. Si ce n'est pas votre nom, signalez-le à votre enseignant.</div>` : ''}
+        ${s && s.consignes ? `<div class="exam-consignes"><b>Consignes</b><div class="pre">${esc(s.consignes)}</div></div>` : ''}
+        <div class="form-grid ident"><label>Nom<input type="text" id="epNom" value="${esc(id.nom)}" autocomplete="off"${ro}></label><label>Prénom<input type="text" id="epPrenom" value="${esc(id.prenom)}" autocomplete="off"${ro}></label><label>Classe<input type="text" id="epClasse" value="${esc(id.classe)}" autocomplete="off"></label></div>
+        <div id="epMsg">${msg || ''}</div>
+        ${s && S.topo.devices.length ? '<p class="muted small">La topologie actuelle sera remplacée par le réseau du sujet : sauvegardez-la avant si nécessaire.</p>' : ''}
+      </div></div>`, [
       { label: 'Annuler', action: closeModal },
-      { label: 'Choisir le fichier du sujet', primary: true, action: () => { closeModal(); $('#sujetInput').click(); } }
-    ]);
+      { label: '▶ Commencer l\'examen', primary: true, action: beginExam }
+    ], 'exam-pass-modal');
+    $('#modalFoot .primary').disabled = !s;
+    const keep = () => { passDraft = { nom: $('#epNom').value, prenom: $('#epPrenom').value, classe: $('#epClasse').value }; if (nm) { delete passDraft.nom; delete passDraft.prenom; } };
+    ['#epNom', '#epPrenom', '#epClasse'].forEach(q => $(q).addEventListener('input', keep));
+    $('#epFile').addEventListener('change', e => {
+      const f = e.target.files[0]; if (!f) return;
+      keep();
+      const rd = new FileReader();
+      rd.onload = () => {
+        let ex = null;
+        try { ex = X.readFile(JSON.parse(rd.result)); } catch (err) { ex = null; }
+        if (!ex || ex.kind !== 'sujet') return ($('#epMsg').innerHTML = `<div class="alert err">Sujet refusé : « ${esc(f.name)} » n'est pas un sujet d'examen OptiSim FTTx Lab. Choisissez le fichier sujet-….json donné par votre enseignant.</div>`);
+        pendingSujet = ex.data;
+        openPasserExam();
+      };
+      rd.readAsText(f);
+    });
+    setTimeout(() => { const i = s && ['#epNom', '#epPrenom', '#epClasse'].map(q => $(q)).find(x => x && !x.value); if (i) i.focus(); }, 30);
+  }
+  function beginExam() {
+    if (!pendingSujet) return;
+    const st = { nom: $('#epNom').value.trim(), prenom: $('#epPrenom').value.trim(), classe: $('#epClasse').value.trim() };
+    if (!st.nom || !st.prenom || !st.classe) { $('#epMsg').innerHTML = '<div class="alert warn">Indiquez votre nom, votre prénom et votre classe.</div>'; return; }
+    store.set('optisim-eleve', JSON.stringify(st));
+    const sujet = pendingSujet;
+    closeModal();
+    confirmReplace(() => { pendingSujet = null; passDraft = {}; startExam(sujet, st); });
   }
   function examElapsed() { return S.examStart ? Math.floor((Date.now() - Date.parse(S.examStart)) / 60000) : 0; }
   function renderExamBar() {
@@ -2024,14 +2067,17 @@
     const el = examElapsed();
     const left = S.exam.duree ? S.exam.duree - el : null;
     const tag = $('#examTag');
-    tag.textContent = left === null ? `Examen · ${el} min` : left > 0 ? `Examen · reste ${left} min` : 'Examen · temps écoulé';
+    const who = S.examStudent ? `🎓 ${S.examStudent.prenom} ${S.examStudent.nom}` : 'Examen';
+    tag.innerHTML = `<span class="who">${esc(who)}</span><span>&nbsp;· ${left === null ? `${el} min` : left > 0 ? `reste ${left} min` : 'temps écoulé'}</span>`;
+    tag.title = S.examStudent ? `${S.examStudent.prenom} ${S.examStudent.nom} (${S.examStudent.classe}) — ${S.exam.title}` : S.exam.title;
     tag.classList.toggle('late', left !== null && left <= 0);
     if (left !== null && left <= 0 && !S.exam.lateWarned) { S.exam.lateWarned = true; toast('Temps écoulé : rendez votre copie.', 'warn'); }
   }
   function showConsignes() {
     if (!S.exam) return;
     const e = S.exam;
-    openModal(`Examen — ${e.title}`, `${e.eleve ? `<p><b>Sujet nominatif : ${esc(e.eleve)}</b>. Vérifiez que c'est bien votre nom.</p>` : ''}${e.consignes ? `<p class="pre">${esc(e.consignes)}</p>` : ''}
+    const st = S.examStudent;
+    openModal(`Examen — ${e.title}`, `${st ? `<p><b>${esc(st.prenom)} ${esc(st.nom)}</b> (${esc(st.classe)}) · commencé à ${new Date(S.examStart).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>` : ''}${e.eleve ? `<p><b>Sujet nominatif : ${esc(e.eleve)}</b>. Vérifiez que c'est bien votre nom.</p>` : ''}${e.consignes ? `<p class="pre">${esc(e.consignes)}</p>` : ''}
       <ul class="small">
         <li>Durée : ${e.duree ? e.duree + ' min' : 'libre'}.</li>
         <li>La topologie est <b>verrouillée</b> : vous ne pouvez ni ajouter, ni supprimer, ni déplacer d'équipement.</li>
@@ -2044,7 +2090,8 @@
     if (!S.exam) return;
     let prev = {};
     try { prev = JSON.parse(store.get('optisim-eleve') || '{}'); } catch (e) { prev = {}; }
-    if (S.exam.eleve && !prev.nom) { const w = S.exam.eleve.split(/\s+/); prev = { nom: w[0] || '', prenom: w.slice(1).join(' ') }; }
+    if (S.examStudent) prev = S.examStudent;
+    else if (S.exam.eleve && !prev.nom) { const w = S.exam.eleve.split(/\s+/); prev = { nom: w[0] || '', prenom: w.slice(1).join(' ') }; }
     openModal('Rendre ma copie', `<p>Votre copie contient la topologie dans son état actuel et le journal de vos actions.</p>
       <div class="form-grid"><label>Nom<input type="text" id="cpNom" value="${esc(prev.nom || '')}" autocomplete="off"></label><label>Prénom<input type="text" id="cpPrenom" value="${esc(prev.prenom || '')}" autocomplete="off"></label><label>Classe<input type="text" id="cpClasse" value="${esc(prev.classe || '')}" autocomplete="off"></label></div>
       <p class="muted small">Choisissez le <b>dossier de dépôt</b> indiqué par votre enseignant (par exemple <code>Copies\\votre classe</code> sur le partage de la salle) : il sera proposé automatiquement la fois suivante. Selon le navigateur, le fichier peut aussi arriver dans Téléchargements : remettez-le alors à votre enseignant (clé USB, ENT…). Vous pouvez continuer puis rendre une nouvelle copie : l'enseignant corrige la plus récente.</p>`, [
@@ -2108,8 +2155,7 @@
     $$('#modeSwitch button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
     
     $('#btnExamInfo').addEventListener('click', showConsignes);
-    $('#btnPasserExam').addEventListener('click', openPasserExam);
-    $('#sujetInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) openFile(f, { sujet: true }); e.target.value = ''; });
+    $('#btnPasserExam').addEventListener('click', () => openPasserExam());
     $('#btnSubmit').addEventListener('click', submitCopy);
     $('#btnLabs').addEventListener('click', () => openLabs());
     $('#btnEmptyLabs').addEventListener('click', () => openLabs());
