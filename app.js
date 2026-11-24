@@ -1212,6 +1212,11 @@
     const w = S.engine.warnings();
     if (w.length) h += `<div class="section"><h4>Alertes d'ingénierie</h4>${w.map(x => `<div class="alert warn"><a href="#" data-sel-link="${x.id}">${esc(x.text)}</a></div>`).join('')}</div>`;
     if (S.services && S.services.active) h += `<div class="section"><h4>Services des abonnés</h4>${servicesTableHTML()}<p class="muted small">Détail et configuration : onglet « Configuration ».</p></div>`;
+    if (S.exam) {
+      h += `<div class="section"><h4>Examen en cours</h4><p class="small">Le réseau est verrouillé : seuls les mesures, les réglages et les interventions sont permis. Vos actions sont enregistrées.</p>
+      <div class="row"><button class="btn" data-act="exam-consignes">Consignes</button><button class="btn primary" data-act="exam-rendre">Rendre ma copie</button></div></div>`;
+      return h;
+    }
     h += `<div class="section"><h4>Démarrage rapide</h4><ol class="small">
       <li>Glissez un <b>OLT</b>, un <b>ODF</b> et des équipements sur le canevas.</li>
       <li>Choisissez un <b>câble</b> dans la boîte à outils puis cliquez sur l'équipement amont et l'équipement aval.</li>
@@ -1655,6 +1660,8 @@
       case 'delete': return deleteSelection();
       case 'bilan': S.tab = 'bilan'; return renderInspector();
       case 'labs': return openLabs();
+      case 'exam-consignes': return showConsignes();
+      case 'exam-rendre': return submitCopy();
       case 'dup': {
         if (locked()) return;
         const d = obj; const c = JSON.parse(JSON.stringify(d)); c.id = uid(d.type); c.x += 30; c.y += 30; delete c.fault; delete c.cfgFault; c.props.name += ' (copie)';
