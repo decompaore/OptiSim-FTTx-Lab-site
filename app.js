@@ -161,6 +161,7 @@
   }
   /** Applique une modification à la topologie avec historique. */
   function mutate(fn, opts = {}) {
+    if (examFrozen()) return toast('Temps écoulé : le sujet est figé. Enregistrez votre copie.', 'warn');
     const snap = snapshot();
     fn();
     const removed = sanitizeLinks(S.topo);
@@ -1965,6 +1966,7 @@
   /** Ajoute une action au journal (seulement pendant un examen). */
   function logJ(k, txt, extra) {
     if (!S.exam) return;
+    if (examFrozen() && k !== 'rendu' && k !== 'fin') return; // sujet figé : plus aucune action enregistrée
     if (k === 'diag') { if (lastDiag === extra.id) return; lastDiag = extra.id; }
     if (S.journal.length >= 3000) return;
     S.journal.push(Object.assign({ t: new Date().toISOString(), k, txt }, extra || {}));
@@ -2002,7 +2004,8 @@
   }
   function endExam() {
     if (!S.exam) return;
-    S.exam = null; S.examStudent = null; S.examStart = null; S.journal = [];
+    S.exam = null; S.examStudent = null; S.examStart = null; S.journal = []; S.examFrozenShown = false;
+    document.body.classList.remove('exam-frozen');
     store.del(EXAM_KEY);
     document.body.classList.remove('exam-locked');
     renderExamBar();
@@ -2077,8 +2080,26 @@
     const who = S.examStudent ? `🎓 ${S.examStudent.prenom} ${S.examStudent.nom}` : 'Examen';
     tag.innerHTML = `<span class="who">${esc(who)}</span><span>&nbsp;· ${left === null ? `${el} min` : left > 0 ? `reste ${left} min` : 'temps écoulé'}</span>`;
     tag.title = S.examStudent ? `${S.examStudent.prenom} ${S.examStudent.nom} (${S.examStudent.classe}) — ${S.exam.title}` : S.exam.title;
-    tag.classList.toggle('late', left !== null && left <= 0);
-    if (left !== null && left <= 0 && !S.exam.lateWarned) { S.exam.lateWarned = true; toast('Temps écoulé : rendez votre copie.', 'warn'); }
+    const frozen = examFrozen();
+    tag.classList.toggle('late', frozen);
+    document.body.classList.toggle('exam-frozen', frozen);
+    $('#btnExamQuit').hidden = !(frozen && S.journal.some(j => j.k === 'rendu'));
+    if (frozen && !S.examFrozenShown) freezeExam();
+  }
+  /** Temps imparti écoulé : le sujet est figé (aucune mesure, intervention ni réglage). */
+  function examFrozen() {
+    return !!(S.exam && S.exam.duree && S.examStart && Date.now() >= Date.parse(S.examStart) + S.exam.duree * 60000);
+  }
+  function freezeExam() {
+    S.examFrozenShown = true;
+    if (!S.journal.some(j => j.k === 'fin')) logJ('fin', 'Temps écoulé : sujet figé');
+    S.cableStart = null;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    setTool(null);
+    const rendu = S.journal.some(j => j.k === 'rendu');
+    openModal('Temps écoulé', `<p>La durée de l'examen (${S.exam.duree}&nbsp;min) est terminée. Le sujet est <b>figé</b> : plus aucune mesure, intervention ni modification n'est possible.</p>
+      <p>${rendu ? 'Vous avez déjà rendu une copie. Enregistrez-la de nouveau pour remettre l\'état final du réseau.' : 'Vous n\'avez pas encore rendu votre copie : <b>enregistrez-la maintenant</b>.'}</p>`,
+      [{ label: 'Enregistrer ma copie', primary: true, action: submitCopy }]);
   }
   function showConsignes() {
     if (!S.exam) return;
@@ -2098,7 +2119,7 @@
     else if (S.exam.eleve && !prev.nom) { const w = S.exam.eleve.split(/\s+/); prev = { nom: w[0] || '', prenom: w.slice(1).join(' ') }; }
     openModal('Rendre ma copie', `<p>Votre copie contient la topologie dans son état actuel et le journal de vos actions.</p>
       <div class="form-grid"><label>Nom<input type="text" id="cpNom" value="${esc(prev.nom || '')}" autocomplete="off"></label><label>Prénom<input type="text" id="cpPrenom" value="${esc(prev.prenom || '')}" autocomplete="off"></label><label>Classe<input type="text" id="cpClasse" value="${esc(prev.classe || '')}" autocomplete="off"></label></div>
-      <p class="muted small">Choisissez le <b>dossier de dépôt</b> indiqué par votre enseignant (par exemple <code>Copies\\votre classe</code> sur le partage de la salle) : il sera proposé automatiquement la fois suivante. Selon le navigateur, le fichier peut aussi arriver dans Téléchargements : remettez-le alors à votre enseignant (clé USB, ENT…). Vous pouvez continuer puis rendre une nouvelle copie : l'enseignant corrige la plus récente.</p>`, [
+      <p class="muted small">Choisissez le <b>dossier de dépôt</b> indiqué par votre enseignant (par exemple <code>Copies\\votre classe</code> sur le partage de la salle) : il sera proposé automatiquement la fois suivante. Selon le navigateur, le fichier peut aussi arriver dans Téléchargements : remettez-le alors à votre enseignant (clé USB, ENT…). ${examFrozen() ? 'Le temps est écoulé : la copie contient l\'état du réseau à la fin de l\'épreuve.' : 'Vous pouvez continuer puis rendre une nouvelle copie : l\'enseignant corrige la plus récente.'}</p>`, [
       { label: 'Annuler', action: closeModal },
       { label: 'Enregistrer ma copie', primary: true, action: async () => {
         const eleve = { nom: $('#cpNom').value.trim(), prenom: $('#cpPrenom').value.trim(), classe: $('#cpClasse').value.trim() };
@@ -2109,6 +2130,7 @@
         const ou = await saveAs(JSON.stringify(file), `copie-${slug(eleve.nom)}-${slug(eleve.prenom)}-${slug(S.exam.title)}.json`, 'application/json', 'optisim-copies');
         if (!ou) return toast('Enregistrement annulé : votre copie n\'est pas encore rendue.', 'warn');
         closeModal();
+        renderExamBar();
         toast(ou === 'dossier' ? 'Copie enregistrée dans le dossier choisi. Vous pouvez la rendre de nouveau plus tard si besoin.' : 'Copie enregistrée dans Téléchargements. Remettez-la à votre enseignant.', 'ok');
       } }
     ]);
@@ -2161,6 +2183,7 @@
     $('#btnExamInfo').addEventListener('click', showConsignes);
     $('#btnPasserExam').addEventListener('click', () => openPasserExam());
     $('#btnSubmit').addEventListener('click', submitCopy);
+    $('#btnExamQuit').addEventListener('click', () => confirmReplace(() => loadTopology({ devices: [], links: [] }, { undoable: false })));
     $('#btnLabs').addEventListener('click', () => openLabs());
     $('#btnEmptyLabs').addEventListener('click', () => openLabs());
     $('#btnDocs').addEventListener('click', () => openDocs());
@@ -2187,6 +2210,7 @@
       }
       if (!modal.hidden) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return saveFile(); }
+      if (examFrozen()) return; // sujet figé : seul Ctrl+S (rendre la copie) reste actif
       if (typing) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); return e.shiftKey ? redo() : undo(); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); return redo(); }
@@ -2287,7 +2311,7 @@
     if (restored) restoreExamState();
     refresh();
     renderExamBar();
-    setInterval(renderExamBar, 30000);
+    setInterval(renderExamBar, 5000);
     if (restored) { requestAnimationFrame(fitView); toast(S.exam ? `Examen « ${S.exam.title} » repris.` : 'Session précédente restaurée.'); }
   }
   init();

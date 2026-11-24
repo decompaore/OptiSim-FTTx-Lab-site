@@ -494,6 +494,11 @@ tr.budget td { border-top: 1px dashed var(--border); }
 .exam-tag .who { max-width:160px; overflow:hidden; text-overflow:ellipsis; }
 
 body.exam-locked .pal-item[data-type], body.exam-locked .pal-item[data-cable] { opacity:.4; cursor:not-allowed; }
+/* Temps écoulé : sujet figé, seuls « Consignes », « Rendre ma copie » et « Terminer » restent actifs */
+body.exam-frozen .layout { pointer-events:none; user-select:none; }
+body.exam-frozen .layout > * { opacity:.55; filter:grayscale(.6); }
+body.exam-frozen .topbar > :not(#examGroup):not(.brand) { pointer-events:none; opacity:.4; }
+body.exam-frozen .layout::after { content:"Temps écoulé : sujet figé"; position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:20; padding:6px 14px; border-radius:999px; background:#dc2626; color:#fff; font-weight:700; font-size:13px; }
 .exam-tools section { margin-bottom:18px; }
 .exam-tools textarea { width:100%; box-sizing:border-box; font:inherit; resize:vertical; }
 .form-grid.bareme { grid-template-columns:repeat(2, minmax(0, 1fr)); }
