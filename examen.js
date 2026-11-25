@@ -46,6 +46,61 @@
   const encode = obj => toB64(xor(new TextEncoder().encode(JSON.stringify(obj))));
   const decode = str => JSON.parse(new TextDecoder().decode(xor(fromB64(str))));
 
+  /* ---------------- Signature des sujets (HMAC-SHA-256) ----------------
+     La version enseignant signe chaque sujet ; à la correction, elle vérifie que le sujet
+     joint à la copie (pannes, topologie de référence, barème, élève) n'a pas été modifié.
+     Le secret n'existe que dans la version enseignant (bloc retiré du paquet élève). */
+  const K256 = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+  /** SHA-256 (synchrone, sans dépendance) : octets → octets. */
+  function sha256(bytes) {
+    const n = bytes.length, len = ((n + 9 + 63) >> 6) << 6;
+    const m = new Uint8Array(len); m.set(bytes); m[n] = 0x80;
+    const dv = new DataView(m.buffer);
+    dv.setUint32(len - 8, Math.floor(n / 0x20000000)); dv.setUint32(len - 4, (n << 3) >>> 0);
+    const H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    const W = new Uint32Array(64);
+    const rotr = (x, r) => (x >>> r) | (x << (32 - r));
+    for (let o = 0; o < len; o += 64) {
+      for (let i = 0; i < 16; i++) W[i] = dv.getUint32(o + i * 4);
+      for (let i = 16; i < 64; i++) {
+        const s0 = rotr(W[i - 15], 7) ^ rotr(W[i - 15], 18) ^ (W[i - 15] >>> 3), s1 = rotr(W[i - 2], 17) ^ rotr(W[i - 2], 19) ^ (W[i - 2] >>> 10);
+        W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0;
+      }
+      let [a, b, c, d, e, f, g, h] = H;
+      for (let i = 0; i < 64; i++) {
+        const t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K256[i] + W[i]) | 0;
+        const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      [a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i] + v) | 0; });
+    }
+    const out = new Uint8Array(32), ov = new DataView(out.buffer);
+    H.forEach((v, i) => ov.setUint32(i * 4, v >>> 0));
+    return out;
+  }
+  /** HMAC-SHA-256 (texte, texte) → hexadécimal. */
+  function hmac(key, msg) {
+    const te = new TextEncoder();
+    let k = te.encode(key); if (k.length > 64) k = sha256(k);
+    const kb = new Uint8Array(64); kb.set(k);
+    const m = te.encode(msg);
+    const inner = new Uint8Array(64 + m.length), outer = new Uint8Array(96);
+    for (let i = 0; i < 64; i++) { inner[i] = kb[i] ^ 0x36; outer[i] = kb[i] ^ 0x5c; }
+    inner.set(m, 64); outer.set(sha256(inner), 64);
+    return Array.from(sha256(outer), x => x.toString(16).padStart(2, '0')).join('');
+  }
+  /** Forme canonique (clés triées) : la signature ne dépend pas de l'ordre des champs. */
+  function canon(v) {
+    if (Array.isArray(v)) return '[' + v.map(x => (x === undefined ? 'null' : canon(x))).join(',') + ']';
+    if (v && typeof v === 'object') return '{' + Object.keys(v).filter(k => v[k] !== undefined).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
+    const s = JSON.stringify(v); return s === undefined ? 'null' : s;
+  }
+  const examSansSig = exam => { const o = Object.assign({}, exam); delete o.sig; return canon(JSON.parse(JSON.stringify(o))); };
+  
+
   const clone = o => JSON.parse(JSON.stringify(o));
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -90,14 +145,19 @@
       faults: listFaults(t),
       topo: t
     };
+    
     return { app: APP, kind: 'sujet', version: 1, title: exam.title, data: encode(exam) };
   }
 
   /** Lit un fichier sujet ou copie ; renvoie null si le fichier n'en est pas un (ou une copie mal formée). */
   function readFile(file) {
     if (!file || file.app !== APP || (file.kind !== 'sujet' && file.kind !== 'copie') || typeof file.data !== 'string') return null;
-    const data = file.kind === 'copie' ? normCopie(decode(file.data)) : decode(file.data);
-    return data ? { kind: file.kind, data } : null;
+    const raw = decode(file.data);
+    const data = file.kind === 'copie' ? normCopie(raw) : raw;
+    if (!data) return null;
+    if (file.kind === 'copie') delete data.signature; // jamais celle écrite dans le fichier
+    
+    return { kind: file.kind, data };
   }
 
   /* Une copie vient du poste de l'élève : elle peut être modifiée à la main. Avant la correction,
@@ -277,6 +337,48 @@
 
   const round05 = v => Math.round(v * 2) / 2;
 
+  /** Écarts de structure entre la topologie du sujet et celle de la copie (réseau verrouillé pendant l'examen). */
+  function structureAnomalies(ref, fin) {
+    const out = [];
+    const near = (a, b) => (a === undefined && b === undefined) || Math.abs((+a || 0) - (+b || 0)) < 0.5;
+    const fd = new Map(fin.devices.map(d => [d.id, d])), fl = new Map(fin.links.map(l => [l.id, l]));
+    ref.devices.forEach(r => {
+      const d = fd.get(r.id); const nom = (r.props && r.props.name) || r.id;
+      if (!d) return out.push(`Équipement « ${nom} » absent de la copie.`);
+      if (d.type !== r.type) out.push(`Équipement « ${nom} » : type modifié.`);
+      else if (!near(d.x, r.x) || !near(d.y, r.y) || !near(d.w, r.w) || !near(d.h, r.h) || !near(d.floorPx, r.floorPx)) out.push(`Équipement « ${nom} » déplacé ou redimensionné.`);
+      if (d.fault && d.fault.type && !(r.fault && r.fault.type === d.fault.type)) out.push(`Équipement « ${nom} » : panne absente du sujet.`);
+      if (d.cfgFault && d.cfgFault.type && !(r.cfgFault && r.cfgFault.type === d.cfgFault.type)) out.push(`Équipement « ${nom} » : panne de configuration absente du sujet.`);
+    });
+    if (fin.devices.length > ref.devices.length) out.push(`${fin.devices.length - ref.devices.length} équipement(s) ajouté(s).`);
+    const ends = l => [l.a && l.a.dev, l.a && l.a.port, l.b && l.b.dev, l.b && l.b.port].join('|');
+    ref.links.forEach(r => {
+      const l = fl.get(r.id);
+      if (!l) return out.push(`Câble ${r.id} absent de la copie.`);
+      if (l.type !== r.type || ends(l) !== ends(r) || Math.abs((+l.length || 0) - (+r.length || 0)) > 0.01) out.push(`Câble ${r.id} modifié (type, extrémités ou longueur).`);
+      if (l.fault && l.fault.type && !(r.fault && r.fault.type === l.fault.type)) out.push(`Câble ${r.id} : panne absente du sujet.`);
+    });
+    if (fin.links.length > ref.links.length) out.push(`${fin.links.length - ref.links.length} câble(s) ajouté(s).`);
+    return out;
+  }
+  /** Contrôles du journal : ordre, début, remise, temps imparti. */
+  function journalAnomalies(J, exam, renduLe) {
+    const out = [];
+    const ts = J.map(e => Date.parse(e.t));
+    if (ts.some(t => !isFinite(t))) out.push('Journal : date illisible.');
+    if (!J.length || J[0].k !== 'debut') out.push('Journal : début de l\'examen absent.');
+    for (let i = 1; i < ts.length; i++) if (ts[i] + 2000 < ts[i - 1]) { out.push('Journal : actions dans le désordre.'); break; }
+    const fin = Date.parse(renduLe);
+    if (isFinite(fin) && ts.some(t => t > fin + 5000)) out.push('Journal : actions datées après la remise de la copie.');
+    const debut = J.length && J[0].k === 'debut' ? ts[0] : NaN;
+    if (exam.duree > 0 && isFinite(debut)) {
+      const limite = debut + exam.duree * 60000 + 60000;
+      const tard = J.filter((e, i) => e.k !== 'fin' && e.k !== 'rendu' && ts[i] > limite).length;
+      if (tard) out.push(`Journal : ${tard} action(s) après la fin du temps imparti.`);
+    }
+    return out;
+  }
+
   /**
    * Corrige une copie (objet décodé). `bareme` remplace celui du sujet.
    * Renvoie le détail : pannes, services, méthode, interventions inutiles, note /20.
@@ -285,12 +387,45 @@
     const B = Object.assign({}, DEFAULT_BAREME, copie.exam.bareme || {}, bareme || {});
     const fin = copie.topo;
     const byId = id => fin.devices.find(d => d.id === id) || fin.links.find(l => l.id === id);
+    const J = copie.journal || [];
+    const anomalies = [];
+    if (copie.signature === 'invalide') anomalies.push('Sujet modifié : la signature du sujet ne correspond pas à son contenu.');
+    else if (copie.signature === 'absente') anomalies.push('Sujet non signé : créé avec une version antérieure d\'OptiSim, ou fabriqué.');
+
+    // Journal : le résultat de chaque intervention est recalculé à partir des pannes du sujet
+    // (le champ « hit » écrit dans la copie n'est pas pris en compte).
+    const phys = new Set(copie.exam.faults.filter(f => f.kind !== 'cfg').map(f => f.id));
+    const cfg = new Set(copie.exam.faults.filter(f => f.kind === 'cfg').map(f => f.id));
+    const doneP = new Set(), doneC = new Set();
+    let incoherent = 0, cfgSansPanne = 0;
+    const events = J.map(e => {
+      if (e.k === 'intervention') {
+        const hit = phys.has(e.id) && !doneP.has(e.id);
+        if (hit) doneP.add(e.id);
+        if (!!e.hit !== hit) incoherent++;
+        return Object.assign({}, e, { hit });
+      }
+      if (e.k === 'cfg-corrigee') {
+        const ok = cfg.has(e.id) && !doneC.has(e.id);
+        if (ok) doneC.add(e.id); else cfgSansPanne++;
+        return Object.assign({}, e, { ok });
+      }
+      return e;
+    });
+    if (incoherent) anomalies.push(`Journal : ${incoherent} intervention(s) au résultat incohérent avec le sujet.`);
+    if (cfgSansPanne) anomalies.push(`Journal : ${cfgSansPanne} correction(s) de configuration sans panne correspondante.`);
+
+    // Une panne compte comme réparée si l'état final le montre ET si le journal en garde la trace.
     const faults = copie.exam.faults.map(f => {
       const o = byId(f.id);
-      const repaired = !!o && (f.kind === 'cfg' ? !(o.cfgFault && o.cfgFault.type === f.type) : !(o.fault && o.fault.type));
-      return Object.assign({}, f, { repaired });
+      const etat = !!o && (f.kind === 'cfg' ? !(o.cfgFault && o.cfgFault.type === f.type) : !(o.fault && o.fault.type));
+      const trace = f.kind === 'cfg' ? doneC.has(f.id) : doneP.has(f.id);
+      if (etat && !trace) anomalies.push(`Panne « ${f.label} — ${f.where} » réparée sans trace dans le journal : non comptée.`);
+      return Object.assign({}, f, { repaired: etat && trace });
     });
     const nRep = faults.filter(f => f.repaired).length;
+    structureAnomalies(copie.exam.topo, fin).forEach(a => anomalies.push(a));
+    journalAnomalies(J, copie.exam, copie.renduLe).forEach(a => anomalies.push(a));
 
     // Services et liaisons : chaque élément en service dans la référence doit l'être à la fin
     const ref = states(healthy(copie.exam.topo));
@@ -331,16 +466,15 @@
 
     // Méthode : chaque correction réussie doit être précédée d'une mesure (pannes physiques)
     // ou d'une consultation du diagnostic (pannes de configuration) depuis l'action précédente.
-    const J = copie.journal || [];
     let seenMeasure = false, seenDiag = false, units = 0, methodical = 0;
     const inutiles = [];
-    J.forEach(e => {
+    events.forEach(e => {
       if (MEASURES.has(e.k)) seenMeasure = true;
       else if (e.k === 'diag' && e.term) seenDiag = true;
       else if (e.k === 'intervention') {
         if (e.hit) { units++; if (seenMeasure) methodical++; } else inutiles.push(e);
         seenMeasure = false;
-      } else if (e.k === 'cfg-corrigee') { units++; if (seenDiag || seenMeasure) methodical++; seenDiag = false; seenMeasure = false; }
+      } else if (e.k === 'cfg-corrigee' && e.ok) { units++; if (seenDiag || seenMeasure) methodical++; seenDiag = false; seenMeasure = false; }
     });
 
     const rPannes = faults.length ? nRep / faults.length : 1;
@@ -367,9 +501,9 @@
       sujetDe: copie.exam.eleve || null, sujetConforme: sameStudent(copie.exam.eleve, copie.eleve),
       bareme: B, faults, nRep, services, nSvc, units, methodical, inutiles, recette, otdr,
       mesures: J.filter(e => MEASURES.has(e.k)).length,
-      pts, max, note, dureeMin, journal: J
+      pts, max, note, dureeMin, journal: events, anomalies, signature: copie.signature || null
     };
   }
 
-  global.OptiExam = { DEFAULT_BAREME, BAREME_LABELS, encode, decode, listFaults, makeSujet, readFile, normCopie, makeCopie, grade, makeLot, injectRandomFaults, zipFiles, crc32, sameStudent };
+  global.OptiExam = { DEFAULT_BAREME, BAREME_LABELS, encode, decode, hmac, listFaults, makeSujet, readFile, normCopie, makeCopie, grade, makeLot, injectRandomFaults, zipFiles, crc32, sameStudent };
 })(typeof window !== 'undefined' ? window : globalThis);

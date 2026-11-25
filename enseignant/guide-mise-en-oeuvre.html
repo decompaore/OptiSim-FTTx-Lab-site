@@ -231,7 +231,8 @@
   <table>
     <tr><th>Élément</th><th>Protection</th></tr>
     <tr><td>Version enseignant sur le partage ou le site</td><td><b>chiffrée</b> (AES-256, mot de passe) <b>et</b> dossier invisible pour les élèves</td></tr>
-    <tr><td>Sujets et copies</td><td>encodés (illisibles dans un éditeur de texte), mais <b>pas chiffrés</b> : les droits du partage font la protection</td></tr>
+    <tr><td>Sujets et copies</td><td>encodés, <b>pas chiffrés</b> : droits du partage ; sujet <b>signé</b>, copie contrôlée à la correction (« copie à vérifier »)</td></tr>
+    <tr><td>Pannes cachées du sujet</td><td>lisibles avec les outils de développement (F12) : les <b>bloquer</b> sur les postes élèves avec <code>bloquer-outils-dev.ps1</code> (administrateur, <code>-Simulation</code> pour vérifier) ou par GPO sur le groupe Élèves</td></tr>
     <tr><td>Copies des camarades</td><td>dépôt seul : un élève ne voit pas les fichiers des autres</td></tr>
     <tr><td>Code source (corrigés en clair)</td><td>dépôt GitHub <b>privé</b> ; seul le site construit est public</td></tr>
   </table>
