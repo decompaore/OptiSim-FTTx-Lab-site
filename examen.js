@@ -93,11 +93,35 @@
     return { app: APP, kind: 'sujet', version: 1, title: exam.title, data: encode(exam) };
   }
 
-  /** Lit un fichier sujet ou copie ; renvoie null si le fichier n'en est pas un. */
+  /** Lit un fichier sujet ou copie ; renvoie null si le fichier n'en est pas un (ou une copie mal formée). */
   function readFile(file) {
     if (!file || file.app !== APP || (file.kind !== 'sujet' && file.kind !== 'copie') || typeof file.data !== 'string') return null;
-    const data = decode(file.data);
-    return { kind: file.kind, data };
+    const data = file.kind === 'copie' ? normCopie(decode(file.data)) : decode(file.data);
+    return data ? { kind: file.kind, data } : null;
+  }
+
+  /* Une copie vient du poste de l'élève : elle peut être modifiée à la main. Avant la correction,
+     chaque champ reçoit le type attendu (texte, nombre, tableau) ; une copie sans sujet ni
+     topologie exploitable est refusée. Une copie mal formée ne doit pas bloquer toute la classe. */
+  const isObj = o => !!o && typeof o === 'object' && !Array.isArray(o);
+  const str = v => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
+  const topoOk = t => isObj(t) && Array.isArray(t.devices) && Array.isArray(t.links) &&
+    t.devices.every(d => isObj(d) && typeof d.id === 'string' && typeof d.type === 'string' && isObj(d.props)) &&
+    t.links.every(l => isObj(l) && typeof l.id === 'string' && isObj(l.a) && isObj(l.b));
+  function normCopie(c) {
+    if (!isObj(c) || !isObj(c.exam) || !topoOk(c.exam.topo) || !topoOk(c.topo)) return null;
+    const ex = c.exam, el = isObj(c.eleve) ? c.eleve : {};
+    const bareme = {};
+    if (isObj(ex.bareme)) Object.keys(DEFAULT_BAREME).forEach(k => { const v = +ex.bareme[k]; if (isFinite(v) && v >= 0) bareme[k] = v; });
+    return Object.assign({}, c, {
+      eleve: { nom: str(el.nom).trim(), prenom: str(el.prenom).trim(), classe: str(el.classe).trim() },
+      renduLe: str(c.renduLe),
+      exam: Object.assign({}, ex, {
+        id: str(ex.id), title: str(ex.title), eleve: str(ex.eleve), lot: str(ex.lot), bareme,
+        faults: (Array.isArray(ex.faults) ? ex.faults : []).filter(isObj).map(f => Object.assign({}, f, { kind: str(f.kind), id: str(f.id), type: str(f.type), label: str(f.label), where: str(f.where) }))
+      }),
+      journal: (Array.isArray(c.journal) ? c.journal : []).filter(isObj).map(e => Object.assign({}, e, { t: str(e.t), k: str(e.k), txt: str(e.txt) }))
+    });
   }
 
   /* ---------------- Copie ---------------- */
@@ -301,7 +325,7 @@
         const k = x.cible + '|' + x.lambda; if (seen.includes(k)) return; seen.push(k);
         const last = sens => T.filter(y => y.cible === x.cible && y.lambda === x.lambda && y.sens === sens).pop();
         const a = last('aller'), b = last('retour'), bi = a && b ? P.otdrBidir(a, b, fin.recette.seuils) : null;
-        otdr.push({ nom: x.nom, lambda: x.lambda, aller: !!a, retour: !!b, conforme: bi ? bi.conforme : null, horsSeuil: bi ? bi.rows.filter(r => r.ok === false).length : null });
+        otdr.push({ nom: str(x.nom), lambda: +x.lambda || 0, aller: !!a, retour: !!b, conforme: bi ? bi.conforme : null, horsSeuil: bi ? bi.rows.filter(r => r.ok === false).length : null });
       });
     }
 
@@ -347,5 +371,5 @@
     };
   }
 
-  global.OptiExam = { DEFAULT_BAREME, BAREME_LABELS, encode, decode, listFaults, makeSujet, readFile, makeCopie, grade, makeLot, injectRandomFaults, zipFiles, crc32, sameStudent };
+  global.OptiExam = { DEFAULT_BAREME, BAREME_LABELS, encode, decode, listFaults, makeSujet, readFile, normCopie, makeCopie, grade, makeLot, injectRandomFaults, zipFiles, crc32, sameStudent };
 })(typeof window !== 'undefined' ? window : globalThis);
