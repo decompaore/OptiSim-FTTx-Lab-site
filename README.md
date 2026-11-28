@@ -1,6 +1,6 @@
 # OptiSim FTTx Lab — site
 
-Simulateur pédagogique de réseaux fibre optique (FTTH / FTTB / FTTO / P2P) du Bac Pro au cycle d'ingénieur (Bac Pro Télécommunications, Licence, Master). Auteur : **Hassami COMPAORE**.
+Simulateur pédagogique de réseaux fibre optique (FTTH / FTTB / FTTO / P2P) du Bac Pro au cycle d'ingénieur (Bac Pro Télécommunications, Licence, Master). Auteur : **Hassami COMPAORE**. © Hassami COMPAORE — tous droits réservés.
 
 - **Version élève** : https://decompaore.github.io/OptiSim-FTTx-Lab-site/
 - **Version enseignant** (mot de passe de l'établissement) : https://decompaore.github.io/OptiSim-FTTx-Lab-site/enseignant/

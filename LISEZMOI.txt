@@ -3,6 +3,8 @@ Auteur : Hassami COMPAORE — decompaore@gmail.com — Tél. / WhatsApp : +226 7
 
 Ouvrir index.html dans un navigateur récent (Chrome, Edge, Firefox). Aucune installation, aucune connexion Internet.
 
+© Hassami COMPAORE — Tous droits réservés. Toute autorisation : decompaore@gmail.com.
+
 Version élève : TP, exemples, instruments de mesure, couche service et livrets imprimables (fiches élèves). Les corrigés et les outils de création de pannes sont réservés à la version enseignant. Pour un examen : ouvrir le fichier « sujet-….json » donné par l'enseignant (bouton Ouvrir), puis « Rendre ma copie » à la fin.
 
 Installation sur les postes Windows du lycée : double-cliquer sur installer-eleve.cmd (droits administrateur). L'application est copiée dans « C:\Program Files\OptiSim FTTx Lab » en lecture seule pour les élèves, avec un raccourci sur le bureau de tous les utilisateurs et dans le menu Démarrer. Désinstallation : installer-eleve.cmd -Desinstaller.

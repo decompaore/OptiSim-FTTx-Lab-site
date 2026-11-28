@@ -1250,7 +1250,7 @@
       h += `<div class="budget-gauge" title="Pertes calculées / budget optique"><div class="bg-track"><i class="st-${code}" style="width:${Math.min(100, Math.max(1, bu.utilise))}%"></i><b style="left:${adm}%" title="Pertes admissibles (marge de sécurité)"></b></div>
         <small>Budget utilisé : <b>${fmt(bu.utilise, 1)} %</b> — ${bu.reste < 0 ? 'pertes supérieures au budget : le récepteur ne capte pas le signal' : bu.tient ? `il reste ${fmt(bu.reste - bu.marge)} dB avant la marge de sécurité` : 'la marge de sécurité est entamée : signal faible'}</small></div>`;
     }
-    if (bu.classe) h += `<p class="small muted">Classe GPON <b>${esc(bu.classe.nom)}</b> de l'OLT : affaiblissement du réseau passif entre ${fmt(bu.classe.min, 0)} et ${fmt(bu.classe.max, 0)} dB (norme, pire cas)${known && bu.classeOk !== null ? ` → pertes de ${fmt(bu.pertes)} dB : <b class="st-${bu.classeOk ? 'ok' : 'los'}">${bu.classeOk ? 'conforme' : 'hors classe'}</b>` : ''}.</p>`;
+    if (bu.classe) h += `<p class="small muted">Classe GPON <b>${esc(bu.classe.nom)}</b> de l'OLT : affaiblissement du réseau passif entre ${fmt(bu.classe.min, 0)} et ${fmt(bu.classe.max, 0)} dB (norme, pire cas)${known && bu.classeOk !== null ? ` → pertes de ${fmt(bu.pertes)} dB : <b class="st-${bu.classeOk ? 'ok' : 'los'}">${bu.classeEtat === 'sous-min' ? `sous le minimum de la classe (risque de saturation : ajouter un atténuateur)` : bu.classeOk ? 'conforme' : 'hors classe'}</b>` : ''}.</p>`;
     return h;
   }
 

@@ -594,10 +594,10 @@
         { q: 'Pourquoi utilise-t-on de la fibre multimode OM4 dans un datacenter ?', a: '' },
         { q: 'Calculez l\'atténuation et la puissance reçue par le switch leaf (Tx −2,5 dBm, 850 nm).', a: '' },
         { q: 'Même calcul pour un serveur de la baie C2.', a: '' },
-        { q: 'La norme 10GBASE-SR limite la perte du canal à 2,9 dB en OM4. Les deux liaisons sont-elles conformes ?', a: '' },
+        { q: 'La norme IEEE 802.3ae (10GBASE-SR) fixe la perte maximale du canal à 2,6 dB pour 300 m d\'OM3 ; pour 400 m d\'OM4, la valeur d\'usage (TIA, constructeurs) est 2,9 dB. Les deux liaisons OM4 sont-elles conformes ?', a: '' },
         { q: 'Que gagne-t-on avec une cassette C2 « faible perte » ?', a: '' },
         { q: 'À quoi sert une cassette MPO ?', a: '' },
-        { q: 'Pour aller plus loin (Licence, Master, ingénieur) — Le budget du SFP (Tx − sensibilité) atteint 7,4 dB. Pourquoi la norme limite-t-elle pourtant la perte du canal à 2,9 dB ?', a: '' },
+        { q: 'Pour aller plus loin (Licence, Master, ingénieur) — Le budget du SFP (Tx − sensibilité) atteint 7,4 dB. Pourquoi la perte du canal est-elle pourtant limitée à 2,6 dB (IEEE 802.3ae, OM3) ou 2,9 dB (valeur d\'usage, OM4) ?', a: '' },
         { q: 'Pour aller plus loin — À 850 nm, la bande passante modale vaut 2 000 MHz·km en OM3 et 4 700 MHz·km en OM4. Pourquoi la portée 10GBASE-SR passe-t-elle de 300 m à 400 m ?', a: '' },
         { q: 'Pour aller plus loin — Pourquoi un câblage MPO prépare-t-il la migration vers 40 et 100 Gbit/s ? Qu\'est-ce que la polarité d\'un lien MPO ?', a: '' }
       ],
@@ -770,8 +770,8 @@
 <table class="doc-table"><tr><th>Fibre</th><th>Usage</th><th>Atténuation</th></tr>
 <tr><td>Monomode <b>G.652D</b></td><td>Transport / distribution extérieure</td><td>0,35 dB/km à 1310 nm · 0,25 à 1490 · 0,22 à 1550</td></tr>
 <tr><td>Monomode <b>G.657A2</b></td><td>Intérieur, drop, colonne : insensible aux courbures (rayon 7,5 mm)</td><td>identique à G.652D</td></tr>
-<tr><td>Multimode <b>OM3</b> (aqua)</td><td>Dorsale entreprise ≤ 300 m @ 10G</td><td>3,0 dB/km à 850 nm · 1,0 à 1300</td></tr>
-<tr><td>Multimode <b>OM4</b> (violet)</td><td>Dorsale ≤ 400 m @ 10G</td><td>2,5 dB/km à 850 nm · 0,8 à 1300</td></tr></table>
+<tr><td>Multimode <b>OM3</b> (aqua)</td><td>Dorsale entreprise ≤ 300 m @ 10G</td><td>3,0 dB/km à 850 nm · 1,0 à 1300 (typique ; maximum CEI 60793-2-10 : 3,5 et 1,5)</td></tr>
+<tr><td>Multimode <b>OM4</b> (violet)</td><td>Dorsale ≤ 400 m @ 10G</td><td>identique à l'OM3 : l'OM4 a une plus grande bande passante modale, pas une atténuation plus faible</td></tr></table>
 <p><b>LSZH</b> (Low Smoke Zero Halogen) : gaine obligatoire dans les bâtiments (faible fumée, pas de gaz halogéné en cas d'incendie).</p>
 <p><b>Drop</b> : câble de branchement extérieur renforcé (aérien ou souterrain).</p>
 <p>Code couleur des câbles dans le simulateur : <span class="chip" style="background:#eab308">SMF</span> <span class="chip" style="background:#78716c">Drop</span> <span class="chip" style="background:#e2e8f0;color:#111">LSZH</span> <span class="chip" style="background:#f97316">Colonne</span> <span class="chip" style="background:#22d3ee;color:#111">OM3</span> <span class="chip" style="background:#a855f7">OM4</span> <span class="chip apc">Jarretière APC</span> <span class="chip upc">Jarretière UPC</span> <span class="chip" style="background:#60a5fa">Cat6</span></p>
@@ -819,7 +819,7 @@
 <ul><li><b>Architecture leaf-spine</b> : chaque switch d'accès (<b>leaf</b>, en tête de baie) est relié à chaque switch de cœur (<b>spine</b>).</li>
 <li>Liaisons courtes : fibre <b>multimode OM4</b> (400 m au plus à 10 Gbit/s) et modules <b>10GBASE-SR</b> à 850 nm.</li>
 <li><b>Câblage pré-connectorisé</b> : un <b>trunk MPO/MTP</b> de 12 fibres relie deux <b>cassettes MPO</b> ; en façade, les ports LC sont brassés par jarretières.</li>
-<li>Le budget est très serré : la norme 10GBASE-SR limite la perte du canal à 2,6 dB (OM3) ou 2,9 dB (OM4). Chaque cassette compte une connexion MPO et une connexion LC : <b>faible perte</b> 0,35 + 0,15 dB, <b>standard</b> 0,75 + 0,5 dB.</li></ul>
+<li>Le budget est très serré : l'IEEE 802.3ae (10GBASE-SR) limite la perte du canal à 2,6 dB pour 300 m d'OM3 ; pour 400 m d'OM4, la valeur d'usage (TIA, constructeurs) est 2,9 dB. Chaque cassette compte une connexion MPO et une connexion LC : <b>faible perte</b> 0,35 + 0,15 dB, <b>standard</b> 0,75 + 0,5 dB.</li></ul>
 <h3>3. Industrie</h3>
 <ul><li>La fibre est insensible aux perturbations électromagnétiques (moteurs, soudage, variateurs) : on l'utilise pour la <b>dorsale</b> de l'usine, du local technique vers les ateliers.</li>
 <li>Multimode dans un même bâtiment, monomode entre bâtiments éloignés.</li>

@@ -12,11 +12,17 @@
   /*  Constantes physiques                                                */
   /* ------------------------------------------------------------------ */
 
-  /** Atténuation linéique (dB/km) par famille de fibre et longueur d'onde. */
+  /**
+   * Atténuation linéique (dB/km) par famille de fibre et longueur d'onde : valeurs TYPIQUES (pas les maxima des normes).
+   * - Monomode G.652.D / G.657.A (UIT-T G.652, G.657) : maxima câblés ≈ 0,40 dB/km de 1310 à 1625 nm et 0,30 dB/km à 1550 nm.
+   *   La valeur à 850 nm n'a pas de sens normatif (la fibre n'y est pas monomode) : elle sert seulement à ne pas bloquer un calcul.
+   * - Multimode OM3 / OM4 (CEI 60793-2-10, ISO/CEI 11801, TIA-568) : maxima câblés 3,5 dB/km à 850 nm et 1,5 dB/km à 1300 nm,
+   *   IDENTIQUES pour OM3 et OM4 (l'OM4 se distingue par sa bande passante modale, pas par son atténuation).
+   */
   const ATTENUATION = {
-    smf:  { 850: 2.0, 1310: 0.35, 1490: 0.25, 1550: 0.22 }, // G.652D / G.657A2
+    smf:  { 850: 2.0, 1310: 0.35, 1490: 0.25, 1550: 0.22 },
     om3:  { 850: 3.0, 1310: 1.0,  1490: 1.0,  1550: 1.0 },
-    om4:  { 850: 2.5, 1310: 0.8,  1490: 0.8,  1550: 0.8 }
+    om4:  { 850: 3.0, 1310: 1.0,  1490: 1.0,  1550: 1.0 }
   };
 
   /** Pertes d'insertion typiques des coupleurs (splitters PLC). */
@@ -76,7 +82,9 @@
       reste: known ? r2(budget - loss) : null,                       // = marge réelle de la liaison
       utilise: known && budget > 0 ? Math.round(loss / budget * 1000) / 10 : null,   // % du budget consommé
       tient: known ? loss <= admissible + 1e-9 : null,               // pertes ≤ pertes admissibles
-      classe: cl, classeOk: cl && known ? loss <= cl.max + 1e-9 : null
+      // Classe GPON (UIT-T G.984.2) : l'affaiblissement du réseau passif doit rester ENTRE le minimum et le maximum de la classe
+      classe: cl, classeOk: cl && known ? loss >= cl.min - 1e-9 && loss <= cl.max + 1e-9 : null,
+      classeEtat: cl && known ? (loss < cl.min - 1e-9 ? 'sous-min' : loss > cl.max + 1e-9 ? 'hors-max' : 'ok') : null
     };
   }
   const WEAK_MARGIN = 3;          // marge minimale conseillée (dB)
@@ -1019,7 +1027,10 @@
     budget(d, res) {
       if (!res || res.dark) return null;
       const s = this.sensOf(d, res), src = this.dev.get(res.src);
-      return Object.assign(budgetOf(res.tx, s.sens, res.lost ? null : res.loss, src && src.type === 'olt' ? src.props.classe : null), { passive: s.passive });
+      // La classe GPON (G.984.2) porte sur l'affaiblissement de TOUT le réseau passif (OLT → ONT) : elle ne se juge
+      // qu'à son extrémité (récepteur ou PTO), pas à un point intermédiaire (ODF, SRO, PBO…).
+      const fin = isReceiver(d) || d.type === 'pto';
+      return Object.assign(budgetOf(res.tx, s.sens, res.lost ? null : res.loss, fin && src && src.type === 'olt' ? src.props.classe : null), { passive: s.passive });
     }
 
     /**
