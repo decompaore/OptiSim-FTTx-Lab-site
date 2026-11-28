@@ -259,6 +259,7 @@ body:not(.mode-design) .handle { display: none; }
 .empty-hint { position: absolute; inset: 0; margin: auto; width: min(460px, 90%); height: fit-content; text-align: center; padding: 26px; background: var(--panel); border: 1px dashed var(--border); border-radius: 14px; box-shadow: var(--shadow); }
 .empty-hint h2 { font-size: 18px; margin-bottom: 8px; }
 .empty-hint p { color: var(--muted); }
+.empty-hint .hint-public { color: var(--text); font-size: 13px; margin: 0 0 10px; }
 
 .zoom-ctl { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
 .legend { position: absolute; right: 60px; bottom: 12px; display: flex; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px 9px; font-size: 11px; color: var(--muted); }

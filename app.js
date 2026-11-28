@@ -2301,7 +2301,7 @@
       $('#modeSwitch [data-mode="fault"]').textContent = 'Dépannage';
     }
     $('#edition').textContent = TEACHER ? 'Version enseignant' : 'Version élève';
-    $('#edition').title = 'OptiSim FTTx Lab ' + ((window.OptiEdition && window.OptiEdition.numero) || '') + ' — ' + SIGNATURE;
+    $('#edition').title = 'OptiSim FTTx Lab ' + ((window.OptiEdition && window.OptiEdition.numero) || '') + ' — du Bac Pro au cycle d\'ingénieur (Licence, Master) — ' + SIGNATURE;
     document.body.classList.add(TEACHER ? 'ed-enseignant' : 'ed-eleve');
     const th = store.get('optisim-theme');
     if (th) document.documentElement.dataset.theme = th;
