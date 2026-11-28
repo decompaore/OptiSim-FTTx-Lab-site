@@ -2,7 +2,7 @@
  * OptiSim FTTx Lab — labs.js
  * Auteur : Hassami COMPAORE
  * Contenu pédagogique embarqué : documentation / cours FTTx,
- * bibliothèque de 7 TP prêts à l'emploi et topologies d'exemple.
+ * bibliothèque de 9 TP prêts à l'emploi et topologies d'exemple.
  * ===================================================================== */
 (function (global) {
   'use strict';
@@ -238,6 +238,97 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Autres usages de la fibre : nœuds actifs, datacenter, industrie      */
+  /* ------------------------------------------------------------------ */
+
+  /** TP 13 — Fibre vers les nœuds actifs : site mobile (backhaul + fronthaul FTTA) et armoire de rue. */
+  function tp13(full) {
+    const t = new Topo();
+    const agg = t.dev('switch', 40, 250, { name: 'Switch d\'agrégation (central)', role: 'coeur', txPower: -3, wavelength: 1310, fiberMode: 'Monomode (SM)', sfpPorts: 2, ethPorts: 0 });
+    const odfC = t.dev('odf', 260, 225, { name: 'ODF du central', ports: 12, connector: 'LC/UPC' });
+    const sh = t.dev('bld_simple', 600, 90, { name: 'Site radio P27 — shelter', kind: 'Shelter de site radio', gaineLength: 5 }, { w: 600, h: 430 });
+    const odfS = t.dev('odf_int', 630, 170, { name: 'ODF du shelter', ports: 12, connector: 'LC/UPC' });
+    const csr = t.dev('switch', 860, 170, { name: 'Routeur de site (CSR)', role: 'acces', txPower: -3, sensitivity: -14.4, overload: 0.5, wavelength: 1310, fiberMode: 'Monomode (SM)', sfpPorts: 1, ethPorts: 2 });
+    const bbu = t.dev('bbu', 640, 340, { name: 'BBU du site', txPower: -1, wavelength: 1310, sfpPorts: 3 });
+    const pt = [], rrh = [];
+    for (let k = 0; k < 3; k++) {
+      pt.push(t.dev('coupler', 970, 265 + k * 78, { name: `Traversée pied de pylône S${k + 1}`, connector: 'LC/UPC', connLoss: 0.5 }));
+      rrh.push(t.dev('rrh', 1360, 120 + k * 150, { name: `RRH secteur ${k + 1}`, secteur: ['Azimut 0°', 'Azimut 120°', 'Azimut 240°'][k] }));
+    }
+    const pa = t.dev('coupler', 640, 610, { name: 'Traversée armoire de rue', connector: 'LC/UPC', connLoss: 0.5 });
+    const msan = t.dev('msan', 880, 595, { name: 'Armoire MSAN rue Pasteur', sensitivity: -20, overload: -3 });
+    t.link('patch', agg, 0, odfC, 0, { length: 2, connector: 'LC/UPC' });
+    t.link('patch', agg, 1, odfC, 1, { length: 2, connector: 'LC/UPC' });
+    t.link('smf', odfC, 0, odfS, 0, { length: 6000, fibers: 12 });
+    t.link('patch', odfS, 0, csr, 0, { length: 2, connector: 'LC/UPC' });
+    for (let k = 0; k < 3; k++) {
+      t.link('patch', bbu, k, pt[k], 0, { length: 3, connector: 'LC/UPC' });
+      if (full) t.link('ftta', pt[k], 0, rrh[k], 0, { length: 45 });
+    }
+    t.link('smf', odfC, 1, pa, 0, { length: 3000, fibers: 12, jointA: 'fusion', jointB: 'fusion' });
+    if (full) t.link('patch', pa, 0, msan, 0, { length: 1, connector: 'LC/UPC' });
+    t.room(sh, 'Baie télécom', 'Local technique', 20, 520);
+    return t.json();
+  }
+
+  /** TP 14 — Datacenter : liaisons leaf-spine et serveurs en OM4 par cassettes MPO. */
+  function tp14(full) {
+    const t = new Topo();
+    const dc = t.dev('bld_simple', 30, 100, { name: 'Datacenter — salle informatique', kind: 'Salle informatique / datacenter', gaineLength: 0 }, { w: 1540, h: 420 });
+    const spine = t.dev('switch', 70, 200, { name: 'Switch spine A1', role: 'coeur', txPower: -2.5, wavelength: 850, fiberMode: 'Multimode (MM)', sfpPorts: 2, ethPorts: 0 });
+    const casA = t.dev('mpo_cassette', 280, 190, { name: 'Cassette A1', side: 'lc-mpo', grade: 'faible' });
+    const casB = t.dev('mpo_cassette', 570, 190, { name: 'Cassette B4 (spine)', side: 'mpo-lc', grade: 'faible' });
+    const leaf = t.dev('switch', 780, 200, { name: 'Switch leaf B4', role: 'acces', txPower: -2.5, sensitivity: -9.9, overload: -1, wavelength: 850, fiberMode: 'Multimode (MM)', sfpPorts: 2, ethPorts: 0 });
+    const casC = t.dev('mpo_cassette', 990, 190, { name: 'Cassette B4 (serveurs)', side: 'lc-mpo', grade: 'standard' });
+    const casD = t.dev('mpo_cassette', 1210, 190, { name: 'Cassette C2', side: 'mpo-lc', grade: 'standard' });
+    const s1 = t.dev('server', 1410, 190, { name: 'Serveur C2-01' });
+    const s2 = t.dev('server', 1410, 330, { name: 'Serveur C2-02' });
+    t.link('patch', spine, 0, casA, 0, { length: 2, connector: 'LC/UPC' });
+    if (full) t.link('mpo', casA, 0, casB, 0, { length: 60 });
+    t.link('patch', casB, 0, leaf, 0, { length: 2, connector: 'LC/UPC' });
+    t.link('patch', leaf, 0, casC, 0, { length: 2, connector: 'LC/UPC' });
+    t.link('mpo', casC, 0, casD, 0, { length: 40 });
+    t.link('patch', casD, 0, s1, 0, { length: 3, connector: 'LC/UPC' });
+    if (full) t.link('patch', casD, 1, s2, 0, { length: 3, connector: 'LC/UPC' });
+    t.room(dc, 'Baie A1 — spine', 'Baie informatique', 20, 460);
+    t.room(dc, 'Baie B4 — leaf', 'Baie informatique', 500, 660);
+    t.room(dc, 'Baie C2 — serveurs', 'Baie informatique', 1180, 340);
+    return t.json();
+  }
+
+  /** Exemple Usine : dorsale fibre du local technique vers les ateliers (multimode et monomode). */
+  function exUsine() {
+    const t = new Topo();
+    const u = t.dev('bld_simple', 30, 90, { name: 'Usine — bâtiment principal', kind: 'Usine / atelier', gaineLength: 0 }, { w: 900, h: 560 });
+    const ab = t.dev('bld_simple', 1080, 90, { name: 'Atelier B — assemblage', kind: 'Usine / atelier', gaineLength: 10 }, { w: 520, h: 560 });
+    const swS = t.dev('switch', 60, 170, { name: 'Switch de cœur (SM)', role: 'coeur', txPower: -3, wavelength: 1310, fiberMode: 'Monomode (SM)', sfpPorts: 1, ethPorts: 0 });
+    const swM = t.dev('switch', 60, 330, { name: 'Switch de cœur (MM)', role: 'coeur', txPower: -5, wavelength: 850, fiberMode: 'Multimode (MM)', sfpPorts: 1, ethPorts: 0 });
+    const odfL = t.dev('odf_int', 250, 200, { name: 'ODF local technique', ports: 12, connector: 'LC/UPC' });
+    const odfA = t.dev('odf_int', 560, 360, { name: 'ODF atelier A', ports: 12, connector: 'LC/UPC' });
+    const swA = t.dev('switch_ind', 740, 360, { name: 'Switch atelier A', fiberMode: 'Multimode (MM)', sensitivity: -17, overload: -1, ethPorts: 4, indice: 'IP40' });
+    const a1 = t.dev('automate', 740, 470, { name: 'Automate presse 1' });
+    const a2 = t.dev('automate', 740, 570, { name: 'Automate presse 2' });
+    const odfB = t.dev('odf_int', 1110, 200, { name: 'ODF atelier B', ports: 12, connector: 'LC/UPC' });
+    const swB = t.dev('switch_ind', 1310, 200, { name: 'Switch atelier B', fiberMode: 'Monomode (SM)', sensitivity: -20, overload: -3, ethPorts: 4, indice: 'IP67' });
+    const b1 = t.dev('automate', 1310, 330, { name: 'Robot d\'assemblage' });
+    const b2 = t.dev('automate', 1450, 430, { name: 'Poste de supervision' });
+    t.link('patch', swS, 0, odfL, 0, { length: 2, connector: 'LC/UPC' });
+    t.link('patch', swM, 0, odfL, 1, { length: 2, connector: 'LC/UPC' });
+    t.link('om3', odfL, 1, odfA, 1, { length: 120, jointA: 'fusion', jointB: 'fusion' });
+    t.link('patch', odfA, 1, swA, 0, { length: 2, connector: 'LC/UPC' });
+    t.link('cat6', swA, 0, a1, 0, { length: 25 });
+    t.link('cat6', swA, 1, a2, 0, { length: 40 });
+    t.link('smf', odfL, 0, odfB, 0, { length: 800, fibers: 12 });
+    t.link('patch', odfB, 0, swB, 0, { length: 2, connector: 'LC/UPC' });
+    t.link('cat6', swB, 0, b1, 0, { length: 30 });
+    t.link('cat6', swB, 1, b2, 0, { length: 60 });
+    t.room(u, 'Local technique', 'Local technique', 20, 450);
+    t.room(u, 'Atelier A — usinage', 'Atelier', 500, 380);
+    t.room(ab, 'Atelier B — assemblage', 'Atelier', 20, 480);
+    return t.json();
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Couche service : mise en service FTTH (GPON) et Active Ethernet     */
   /* ------------------------------------------------------------------ */
   const SN_TP10 = 'ALCL1A2B3C4D';
@@ -306,7 +397,7 @@
   /* ------------------------------------------------------------------ */
   const LABS = [
     {
-      id: 'tp1', num: 1, title: 'Liaison point-à-point (P2P) avec brassage ODF', archi: 'P2P / FTTO', duration: '1 h', level: 'Découverte',
+      id: 'tp1', num: 1, title: 'Liaison point-à-point (P2P) avec brassage ODF', archi: 'P2P / FTTO', duration: '1 h', level: 'Découverte', public: 'Bac Pro · Licence',
       objectives: ['Identifier les éléments d\'une liaison optique point-à-point', 'Réaliser un brassage sur un ODF par jarretière', 'Calculer l\'atténuation totale et la puissance reçue', 'Vérifier la mesure au photomètre'],
       context: 'La mairie de la commune doit être raccordée en fibre dédiée (P2P) au NRO situé à 4 km. Le switch cœur du NRO est déjà relié à l\'ODF de tête et le câble de 4 km est tiré et épissuré jusqu\'à l\'ODF d\'entrée du bâtiment administratif. Il reste à brasser le switch client.',
       steps: [
@@ -329,7 +420,7 @@
       topology: tp1
     },
     {
-      id: 'tp2', num: 2, title: 'FTTH pavillonnaire : raccordement d\'une villa via PBO extérieur', archi: 'FTTH', duration: '1 h 30', level: 'Intermédiaire',
+      id: 'tp2', num: 2, title: 'FTTH pavillonnaire : raccordement d\'une villa via PBO extérieur', archi: 'FTTH', duration: '1 h 30', level: 'Intermédiaire', public: 'Bac Pro · Licence',
       objectives: ['Comprendre la chaîne NRO → SRO → PBO → PTO → ONT', 'Poser un câble drop et raccorder la PTO', 'Intégrer la perte d\'un coupleur dans le bilan', 'Interpréter les voyants de l\'ONT'],
       context: 'Un client de la Villa « Les Tilleuls » souscrit un abonnement fibre. Le réseau de distribution est en place jusqu\'au PBO aérien (poteau P12). Le technicien doit tirer le câble de branchement (drop) jusqu\'à la PTO du salon puis installer l\'ONT.',
       steps: [
@@ -352,7 +443,7 @@
       topology: tp2
     },
     {
-      id: 'tp3', num: 3, title: 'FTTH en immeuble : PMI, colonne montante et PBO d\'étage', archi: 'FTTH (immeuble)', duration: '2 h', level: 'Intermédiaire',
+      id: 'tp3', num: 3, title: 'FTTH en immeuble : PMI, colonne montante et PBO d\'étage', archi: 'FTTH (immeuble)', duration: '2 h', level: 'Intermédiaire', public: 'Bac Pro · Licence',
       objectives: ['Identifier PMI, colonne montante et PBO intérieurs', 'Calculer la longueur d\'une colonne montante', 'Réaliser le piquage d\'un PBO d\'étage et le branchement palier', 'Établir un bilan tronçon par tronçon'],
       context: 'La Résidence « Les Érables » (R+3 avec sous-sol) est fibrée. Le PMI est installé au sous-sol avec un coupleur 1:32. La colonne montante dessert les étages 1 et 2. Vous devez prolonger la colonne jusqu\'au 3e étage et raccorder l\'appartement 301.',
       steps: [
@@ -375,7 +466,7 @@
       topology: tp3
     },
     {
-      id: 'tp4', num: 4, title: 'FTTO : fibre dédiée entreprise avec ODF d\'étage et switchs optiques', archi: 'FTTO', duration: '1 h 30', level: 'Intermédiaire',
+      id: 'tp4', num: 4, title: 'FTTO : fibre dédiée entreprise avec ODF d\'étage et switchs optiques', archi: 'FTTO', duration: '1 h 30', level: 'Intermédiaire', public: 'Bac Pro · Licence',
       objectives: ['Différencier FTTH, FTTB et FTTO', 'Câbler une distribution FTTO par ODF d\'étage', 'Vérifier le budget optique d\'une liaison SFP', 'Contrôler la connectivité des postes de travail'],
       context: 'La société TechnoSud (immeuble de bureaux R+2) dispose de 2 fibres dédiées depuis le NRO (6 km). Chaque étage possède un ODF d\'étage alimenté par la colonne montante depuis le local technique du RDC. L\'étage 1 est opérationnel ; l\'étage 2 doit être mis en service.',
       steps: [
@@ -396,7 +487,7 @@
       topology: tp4
     },
     {
-      id: 'tp5', num: 5, title: 'Diagnostic et dépannage d\'un immeuble FTTH', archi: 'FTTH (dépannage)', duration: '2 h', level: 'Avancé',
+      id: 'tp5', num: 5, title: 'Diagnostic et dépannage d\'un immeuble FTTH', archi: 'FTTH (dépannage)', duration: '2 h', level: 'Avancé', public: 'Bac Pro · Licence',
       objectives: ['Mettre en œuvre une méthode de dépannage', 'Utiliser photomètre, OTDR et VFL pour localiser un défaut', 'Distinguer coupure, courbure et connecteur sale', 'Rédiger un compte rendu d\'intervention'],
       context: 'Trois abonnés de la Résidence « Le Belvédère » (PMI avec coupleur 1:64) se plaignent : l\'appartement 301 n\'a plus de service, le 101 subit des coupures, le 201 trouve sa connexion moins stable. Les pannes sont cachées : à vous de les localiser !',
       steps: [
@@ -419,7 +510,7 @@
       topology: tp5
     },
     {
-      id: 'tp10', num: 10, title: 'Mise en service FTTH : OLT, routeur de collecte et Box', archi: 'FTTH (services)', duration: '1 h 30', level: 'Intermédiaire',
+      id: 'tp10', num: 10, title: 'Mise en service FTTH : OLT, routeur de collecte et Box', archi: 'FTTH (services)', duration: '1 h 30', level: 'Intermédiaire', public: 'Bac Pro · Licence · Master',
       objectives: ['Comprendre la chaîne logique routeur de collecte → OLT → ONT → Box → appareils', 'Autoriser une ONT sur l\'OLT par son numéro de série et lui attribuer un profil', 'Configurer la session WAN PPPoE et les VLAN de la Box', 'Lire un diagnostic de service pas à pas'],
       context: 'La fibre de la Maison Dupont est raccordée et la lumière arrive à l\'ONT (−15,97 dBm). Pourtant, ni Internet, ni la TV, ni le téléphone ne fonctionnent. Le technicien de mise en service doit déclarer l\'abonné sur l\'OLT et terminer la configuration de la Box. Contrat de l\'abonné : offre Triple play, identifiant PPPoE dupont@optisim, mot de passe Fibre-2026.',
       steps: [
@@ -442,7 +533,7 @@
       topology: tp10
     },
     {
-      id: 'tp11', num: 11, title: 'Active Ethernet (AON) : raccordement d\'une entreprise', archi: 'AON / P2P', duration: '1 h', level: 'Intermédiaire',
+      id: 'tp11', num: 11, title: 'Active Ethernet (AON) : raccordement d\'une entreprise', archi: 'AON / P2P', duration: '1 h', level: 'Intermédiaire', public: 'Bac Pro · Licence · Master',
       objectives: ['Distinguer l\'architecture Active Ethernet (point à point) du GPON', 'Raccorder un switch AON au routeur de collecte', 'Activer un port abonné et choisir son profil', 'Configurer un adressage IP statique'],
       context: 'L\'entreprise Lumitech est raccordée en fibre dédiée sur le port SFP 3 du switch AON du NRO. Le lien de collecte du switch n\'a pas encore été posé, et le port de l\'entreprise n\'est pas activé. Lumitech utilise un adressage fixe (réseau 192.168.10.0/24, routeur en 192.168.10.1) et a souscrit l\'offre Triple play pour son téléphone.',
       steps: [
@@ -461,6 +552,56 @@
         { q: 'Quel débit maximal le PC peut-il atteindre ?', a: '' }
       ],
       topology: tp11
+    },
+    {
+      id: 'tp13', num: 13, title: 'Fibre vers les nœuds actifs : site mobile (FTTA) et armoire de rue', archi: 'Nœuds actifs (FTTA, FTTC)', duration: '1 h 30', level: 'Intermédiaire', public: 'Bac Pro → cycle d\'ingénieur',
+      objectives: ['Identifier les nœuds actifs raccordés en fibre : site radio, armoire de rue', 'Distinguer le backhaul (collecte du site) et le fronthaul (BBU → têtes radio)', 'Câbler un pylône en FTTA : une fibre par secteur', 'Calculer le bilan et la marge d\'une liaison SFP point à point', 'Repérer un risque de saturation sur une liaison courte'],
+      context: 'L\'opérateur raccorde le site radio P27 (pylône à 3 secteurs, 4G / 5G) et une armoire de montée en débit rue Pasteur. Au central, un switch d\'agrégation alimente en fibre le routeur de site (CSR) du shelter, à 6 km (backhaul), et l\'armoire MSAN, à 3 km. Dans le shelter, la BBU émet le fronthaul vers les trois têtes radio (RRH) du haut du pylône. Les câbles FTTA du pylône et la jarretière de l\'armoire ne sont pas encore posés.',
+      steps: [
+        'Chargez la topologie. Repérez les deux liaisons du central : backhaul du routeur de site (6 km) et collecte de l\'armoire MSAN (3 km). Mesurez au photomètre la puissance reçue par le routeur de site.',
+        'Outil « Câble FTTA de pylône » : reliez chaque traversée de pied de pylône (S1, S2, S3) à la tête radio du même secteur, longueur 45 m.',
+        'Mesurez la puissance reçue par chaque tête radio. Comparez-la à la sensibilité et au seuil de saturation de son SFP (inspecteur, onglet Propriétés).',
+        'Outil « Jarretière » (LC/UPC) : reliez la traversée de l\'armoire de rue à l\'armoire MSAN, puis mesurez sa puissance reçue.',
+        'Onglet « Bilan optique » : relevez le détail des pertes du routeur de site et de l\'armoire MSAN.',
+        'Expérience : passez la puissance d\'émission de la BBU à +4 dBm (module longue portée). Que devient l\'état des têtes radio ? Remettez −1 dBm.'
+      ],
+      questions: [
+        { q: 'Quelle différence entre le backhaul et le fronthaul d\'un site mobile ?', a: '' },
+        { q: 'Calculez l\'atténuation et la puissance reçue par le routeur de site (Tx −3 dBm, 1310 nm). Quelle est la marge ?', a: '' },
+        { q: 'Quelle puissance reçoit une tête radio ? Pourquoi cette liaison est-elle facile ?', a: '' },
+        { q: 'Avec une BBU à +4 dBm, que se passe-t-il ? Comment y remédier ?', a: '' },
+        { q: 'Armoire MSAN : pertes, puissance reçue, et rôle de l\'armoire ?', a: '' },
+        { q: 'Pourquoi n\'utilise-t-on pas de coupleur (PON) pour alimenter les têtes radio ?', a: '' },
+        { q: 'Pour aller plus loin (Licence, Master, ingénieur) — Avec le même switch d\'agrégation et le même routeur de site, quelle est la portée maximale du backhaul en gardant 3 dB de marge ?', a: '' },
+        { q: 'Pour aller plus loin — La lumière parcourt la fibre en 5 µs par km environ (indice de groupe ≈ 1,47). Si la BBU est regroupée au central (C-RAN), quel est le retard du fronthaul ? Quelle distance le limite ?', a: '' },
+        { q: 'Pour aller plus loin — En C-RAN, un site à 3 secteurs demande 3 liaisons fronthaul depuis le central. Comment économiser les fibres du câble de transport ?', a: '' }
+      ],
+      topology: tp13
+    },
+    {
+      id: 'tp14', num: 14, title: 'Datacenter : liaisons leaf-spine et serveurs en OM4 par cassettes MPO', archi: 'Datacenter (MPO, OM4)', duration: '1 h 30', level: 'Intermédiaire', public: 'Bac Pro → cycle d\'ingénieur',
+      objectives: ['Décrire le câblage d\'un datacenter : baies, cassettes MPO, trunks, jarretières', 'Justifier le choix de la fibre multimode OM4 et des SFP 850 nm', 'Calculer un bilan optique à 850 nm', 'Comparer des connexions faible perte et standard', 'Vérifier la perte d\'un canal par rapport à la norme 10GBASE-SR'],
+      context: 'Dans la salle informatique, le switch spine (baie A1) est relié au switch leaf (baie B4) par un trunk MPO OM4 de 60 m, entre deux cassettes « faible perte ». Le leaf dessert les serveurs de la baie C2 par un second trunk de 40 m, entre deux cassettes standard. Le trunk spine → leaf n\'est pas posé et le serveur C2-02 n\'est pas brassé.',
+      steps: [
+        'Chargez la topologie. Dans chaque baie, repérez la cassette MPO : ports LC en façade, trunk MPO à l\'arrière.',
+        'Outil « Trunk MPO/MTP OM4 » : reliez la sortie MPO de la cassette A1 à l\'entrée de la cassette B4 (spine), longueur 60 m.',
+        'Mesurez au photomètre la puissance reçue par le switch leaf B4.',
+        'Outil « Jarretière » (LC/UPC) : brassez le port LC 2 de la cassette C2 vers le serveur C2-02, puis mesurez les deux serveurs.',
+        'Onglet « Bilan optique » : comparez la perte d\'une cassette faible perte et celle d\'une cassette standard.',
+        'Expérience : passez la cassette C2 en « Faible perte ». Que gagne-t-on sur la liaison des serveurs ? Remettez « Standard ».'
+      ],
+      questions: [
+        { q: 'Pourquoi utilise-t-on de la fibre multimode OM4 dans un datacenter ?', a: '' },
+        { q: 'Calculez l\'atténuation et la puissance reçue par le switch leaf (Tx −2,5 dBm, 850 nm).', a: '' },
+        { q: 'Même calcul pour un serveur de la baie C2.', a: '' },
+        { q: 'La norme 10GBASE-SR limite la perte du canal à 2,9 dB en OM4. Les deux liaisons sont-elles conformes ?', a: '' },
+        { q: 'Que gagne-t-on avec une cassette C2 « faible perte » ?', a: '' },
+        { q: 'À quoi sert une cassette MPO ?', a: '' },
+        { q: 'Pour aller plus loin (Licence, Master, ingénieur) — Le budget du SFP (Tx − sensibilité) atteint 7,4 dB. Pourquoi la norme limite-t-elle pourtant la perte du canal à 2,9 dB ?', a: '' },
+        { q: 'Pour aller plus loin — À 850 nm, la bande passante modale vaut 2 000 MHz·km en OM3 et 4 700 MHz·km en OM4. Pourquoi la portée 10GBASE-SR passe-t-elle de 300 m à 400 m ?', a: '' },
+        { q: 'Pour aller plus loin — Pourquoi un câblage MPO prépare-t-il la migration vers 40 et 100 Gbit/s ? Qu\'est-ce que la polarité d\'un lien MPO ?', a: '' }
+      ],
+      topology: tp14
     }
   ];
 
@@ -470,6 +611,7 @@
     { id: 'ex-recette', title: 'Exemple Recette : réception d\'un immeuble (mesures réalistes)', desc: 'Résidence R+3 en mode recette réaliste : chaque composant a sa propre perte, comme sur le terrain. Mesurez chaque ONT au photomètre, saisissez les valeurs dans la fiche de recette (onglet Bilan optique, sans sélection), comparez au calcul théorique et concluez. Un logement n\'est pas conforme : localisez le défaut à l\'OTDR.', topology: exRecette },
     { id: 'ex-ftth', title: 'Démo complète : villa FTTH en service', desc: 'Topologie du TP 2 entièrement câblée.', topology: () => tp2(true) },
     { id: 'ex-services', title: 'Exemple Services : FTTH triple play configuré', desc: 'Routeur de collecte (PPPoE), OLT avec ONT autorisée, Box et 3 appareils : Internet, TV et Téléphonie en service. Explorez l\'onglet « Configuration », puis introduisez une erreur (VLAN, mot de passe, DHCP…) pour voir le diagnostic.', topology: () => tp10(true) },
+    { id: 'ex-usine', title: 'Exemple Industrie : dorsale fibre d\'une usine', desc: 'Local technique, dorsale multimode OM3 vers l\'atelier A (même bâtiment) et monomode vers l\'atelier B (800 m), switchs industriels sur rail DIN et automates.', topology: exUsine },
     { id: 'ex-aon', title: 'Exemple Services : Active Ethernet (AON) entreprise', desc: 'Switch AON relié au routeur de collecte, fibre dédiée sur le port SFP 3, routeur d\'entreprise et adressage IP statique.', topology: () => tp11(true) }
   ];
 
@@ -478,7 +620,7 @@
   /* ------------------------------------------------------------------ */
   const DOCS = [
     { id: 'start', group: 'Guide de l\'utilisateur', title: 'Prise en main de l\'interface', html: `
-<p><b>OptiSim FTTx Lab</b> est un laboratoire virtuel de réseaux fibre optique, conçu par <b>Hassami COMPAORE</b>. L'écran est organisé en 4 zones :</p>
+<p><b>OptiSim FTTx Lab</b> est un laboratoire virtuel de réseaux fibre optique, conçu par <b>Hassami COMPAORE</b>, du <b>Bac Pro Télécommunications</b> au <b>cycle d'ingénieur</b> (Licence, Master). Chaque TP indique les niveaux visés ; les questions « Pour aller plus loin » s'adressent à la Licence, au Master et au cycle d'ingénieur. L'écran est organisé en 4 zones :</p>
 <ol>
 <li><b>Barre supérieure</b> : Nouveau / Ouvrir / Sauvegarder (fichier JSON), choix du <b>mode</b>, bibliothèque <b>Exemples &amp; TP</b>, <b>Documentation</b>, annulation et thème clair/sombre.</li>
 <li><b>Boîte à outils (gauche)</b> : équipements classés par catégorie, câbles et instruments de mesure.</li>
@@ -665,6 +807,31 @@
 <p>La classe est un <b>pire cas garanti</b> (puissance d'émission minimale de l'OLT) : un réseau étudié pour la classe B+ doit rester sous 28 dB de pertes, même si le budget réel des équipements est plus grand. La classe se choisit dans les propriétés de l'OLT.</p>
 <p>Dans OptiSim, l'onglet <b>Bilan optique</b> affiche le budget, les pertes admissibles, la marge, une jauge du budget utilisé et la conformité à la classe de l'OLT.</p>` },
 
+    { id: 'usages', group: 'Fiches d\'ingénierie FTTx', title: 'Autres usages : nœuds actifs, datacenter, industrie', html: `
+<p>La fibre ne sert pas qu'à raccorder des abonnés. Elle alimente aussi les <b>nœuds actifs</b> du réseau de l'opérateur, et relie les équipements d'un <b>datacenter</b> ou d'une <b>usine</b>. Dans ces trois cas, la liaison est le plus souvent <b>point à point</b> : une fibre (ou une paire) par équipement, sans coupleur.</p>
+<h3>1. Fibre vers les nœuds actifs</h3>
+<table class="doc-table"><tr><th>Nœud actif</th><th>Rôle</th><th>Liaison fibre</th></tr>
+<tr><td>Site radio (pylône 4G / 5G)</td><td>antennes du réseau mobile</td><td><b>backhaul</b> : du central au routeur de site (CSR), plusieurs km ; <b>fronthaul</b> : de la <b>BBU</b> à chaque tête radio (<b>RRH</b>) du pylône, une fibre par secteur (câble <b>FTTA</b>)</td></tr>
+<tr><td>Armoire de rue (MSAN, montée en débit)</td><td>nœud de quartier (FTTC / FTTN)</td><td>fibre de collecte jusqu'à l'armoire ; le service continue sur le cuivre (VDSL2) jusqu'aux abonnés proches</td></tr></table>
+<ul><li>Le fronthaul (CPRI, eCPRI) demande un débit élevé (10 Gbit/s et plus) et une très faible latence : jamais de coupleur.</li>
+<li>Sur une liaison courte, un module trop puissant <b>sature</b> le récepteur : on choisit le module selon la distance, ou on ajoute un atténuateur.</li></ul>
+<h3>2. Datacenter</h3>
+<ul><li><b>Architecture leaf-spine</b> : chaque switch d'accès (<b>leaf</b>, en tête de baie) est relié à chaque switch de cœur (<b>spine</b>).</li>
+<li>Liaisons courtes : fibre <b>multimode OM4</b> (400 m au plus à 10 Gbit/s) et modules <b>10GBASE-SR</b> à 850 nm.</li>
+<li><b>Câblage pré-connectorisé</b> : un <b>trunk MPO/MTP</b> de 12 fibres relie deux <b>cassettes MPO</b> ; en façade, les ports LC sont brassés par jarretières.</li>
+<li>Le budget est très serré : la norme 10GBASE-SR limite la perte du canal à 2,6 dB (OM3) ou 2,9 dB (OM4). Chaque cassette compte une connexion MPO et une connexion LC : <b>faible perte</b> 0,35 + 0,15 dB, <b>standard</b> 0,75 + 0,5 dB.</li></ul>
+<h3>3. Industrie</h3>
+<ul><li>La fibre est insensible aux perturbations électromagnétiques (moteurs, soudage, variateurs) : on l'utilise pour la <b>dorsale</b> de l'usine, du local technique vers les ateliers.</li>
+<li>Multimode dans un même bâtiment, monomode entre bâtiments éloignés.</li>
+<li>Dans l'atelier, un <b>switch industriel</b> durci (rail DIN, indice IP) dessert les automates et les postes de supervision en RJ45.</li></ul>
+<h3>Pour aller plus loin (Licence, Master, cycle d'ingénieur)</h3>
+<ul><li><b>Dimensionnement</b> : portée maximale = (budget − marge − pertes hors fibre) ÷ atténuation linéique.</li>
+<li><b>Latence</b> : environ 5 µs par km de fibre. En C-RAN (BBU regroupées au central), le fronthaul tolère un retard de l'ordre de 100 µs, soit une vingtaine de kilomètres.</li>
+<li><b>Multiplexage en longueur d'onde</b> (CWDM, DWDM) : plusieurs liaisons sur une même fibre, au prix de la perte des multiplexeurs.</li>
+<li><b>Multimode</b> : la dispersion modale limite le produit bande passante × distance (OM3 2 000 MHz·km, OM4 4 700 MHz·km à 850 nm) ; la norme réserve une part du budget aux pénalités de transmission.</li>
+<li><b>MPO</b> : 40GBASE-SR4 et 100GBASE-SR4 sur 8 fibres d'un connecteur MPO ; polarité normalisée (TIA-568, méthodes A, B, C).</li></ul>
+<div class="tip">À pratiquer : <b>TP 13</b> (site mobile et armoire de rue), <b>TP 14</b> (datacenter) et l'exemple <b>« Industrie : dorsale fibre d'une usine »</b> (bouton « Exemples &amp; TP »).</div>
+` },
     { id: 'archi', group: 'Fiches d\'ingénierie FTTx', title: 'Architectures FTTH, FTTB, FTTO, P2P', html: `
 <table class="doc-table"><tr><th>Architecture</th><th>Principe</th></tr>
 <tr><td><b>FTTH</b> (Home)</td><td>Fibre jusqu'au logement. Pavillon : NRO → SRO → PBO extérieur → drop → PTO. Immeuble : NRO → PMI → colonne → PBO d'étage → PTO. Architecture PON (coupleurs).</td></tr>

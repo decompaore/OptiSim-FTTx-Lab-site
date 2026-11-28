@@ -203,7 +203,7 @@
     return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   }
   const slugify = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'sans-nom';
-  const PASSIVES = ['odf', 'odf_int', 'pmi', 'sro', 'pbo_ext', 'pbo_int', 'pto', 'splice', 'coupler'];
+  const PASSIVES = ['odf', 'odf_int', 'pmi', 'sro', 'pbo_ext', 'pbo_int', 'pto', 'splice', 'coupler', 'mpo_cassette'];
   /**
    * Injecte des pannes cachées tirées au hasard (rnd) : nCfg pannes de configuration (si la
    * couche service est active), puis nOpt pannes optiques sur des éléments éclairés.

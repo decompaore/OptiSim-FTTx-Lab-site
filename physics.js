@@ -111,6 +111,14 @@
       label: 'Fibre Multimode OM4 (dorsale interne)', short: 'MMF OM4', kind: 'opt', fiber: 'om4',
       color: '#a855f7', defaults: { length: 150, jointA: 'connector', jointB: 'connector', fibers: 12 }, help: 'Multimode haute performance (≤ 400 m à 10 Gbit/s). Gaine violette.'
     },
+    ftta: {
+      label: 'Câble FTTA de pylône (duplex durci, pré-connectorisé)', short: 'FTTA', kind: 'opt', fiber: 'smf',
+      color: '#ca8a04', defaults: { length: 40, jointA: 'none', jointB: 'none', fibers: 2, connector: 'LC/UPC', duplex: 'Duplex' }, help: 'Câble monomode duplex durci (UV, intempéries) qui monte du boîtier de pied de pylône jusqu\'à la tête radio (RRH). Pré-connectorisé LC : ses connecteurs sont comptés dans l\'ODF et la tête radio n\'ajoute pas de perte, comme une ONT.'
+    },
+    mpo: {
+      label: 'Trunk MPO/MTP OM4 pré-connectorisé (12 fibres)', short: 'Trunk MPO', kind: 'opt', fiber: 'om4',
+      color: '#c084fc', defaults: { length: 30, jointA: 'none', jointB: 'none', fibers: 12 }, help: 'Câble multimode OM4 de 12 fibres terminé en usine par des connecteurs MPO/MTP, posé entre deux baies d\'un datacenter. Il relie deux cassettes MPO ; ses connexions MPO sont comptées dans les cassettes.'
+    },
     patch: {
       label: 'Jarretière optique (patch cord)', short: 'Jarretière', kind: 'opt', fiber: 'smf',
       color: '#16a34a', defaults: { length: 2, jointA: 'none', jointB: 'none', fibers: 1, connector: 'SC/APC', duplex: 'Simplex' }, help: 'Câble court (1 à 5 m) de brassage entre ports d\'ODF, PBO pré-connectorisés et équipements actifs.'
@@ -126,6 +134,11 @@
   };
 
   const CONNECTORS = ['SC/APC', 'SC/UPC', 'LC/APC', 'LC/UPC'];
+  /** Connexions d'une cassette MPO : faible perte (« low loss ») ou standard. */
+  const MPO_GRADES = {
+    faible: { label: 'Faible perte (MPO 0,35 dB + LC 0,15 dB)', short: 'faible perte', mpo: 0.35, lc: 0.15 },
+    standard: { label: 'Standard (MPO 0,75 dB + LC 0,5 dB)', short: 'standard', mpo: 0.75, lc: 0.5 }
+  };
   function connectorFamily(c) { return /APC/.test(c || '') ? 'APC' : 'UPC'; }
   function connectorFormat(c) { return (c || 'SC').split('/')[0]; }
   function connectorColor(c) { return connectorFamily(c) === 'APC' ? '#16a34a' : '#2563eb'; }
@@ -316,13 +329,102 @@
       loss: p => [{ label: `Connexion ${p.connector}`, loss: +p.connLoss, reflective: true, kind: 'connector' }]
     },
 
+    /* ---------------- Nœuds actifs : site mobile, armoire de rue ---------------- */
+    bbu: {
+      label: 'BBU : unité de bande de base (site mobile 4G / 5G)', short: 'BBU', cat: 'noeuds', color: '#b45309', emitter: true,
+      desc: 'Équipement actif d\'un site radio. Il émet, sur ses modules SFP, le lien « fronthaul » (CPRI ou eCPRI) vers les têtes radio du pylône : une fibre par secteur, en point à point. Installée dans le shelter du site, ou regroupée dans un central (C-RAN).',
+      defaults: { name: 'BBU', txPower: -1, wavelength: 1310, sfpPorts: 3, interface: 'CPRI 10 Gbit/s' },
+      props: [P.name,
+        { key: 'interface', label: 'Interface fronthaul', type: 'select', options: ['CPRI 10 Gbit/s', 'eCPRI 25 Gbit/s'] },
+        { key: 'txPower', label: 'Puissance d\'émission SFP', type: 'number', min: -10, max: 5, step: 0.5, unit: 'dBm' },
+        { key: 'wavelength', label: 'Longueur d\'onde SFP', type: 'select', options: [1310, 1550], unit: 'nm' },
+        { key: 'sfpPorts', label: 'Ports SFP (secteurs)', type: 'select', options: [1, 3, 6] }],
+      inPorts: () => [], outPorts: p => optPorts(+p.sfpPorts, 'SFP fronthaul'),
+      mapping: 'none', isSource: () => true
+    },
+    rrh: {
+      label: 'Tête radio RRH / RRU (antenne de pylône)', short: 'RRH', cat: 'noeuds', color: '#d97706', receiver: true,
+      desc: 'Module radio fixé en haut du pylône, au pied de l\'antenne d\'un secteur. Il reçoit le fronthaul de la BBU par une fibre monomode (module SFP) et le convertit en signal radio.',
+      defaults: { name: 'RRH', secteur: 'Secteur 1', sensitivity: -14.4, overload: 0.5, connector: 'LC/UPC' },
+      props: [P.name,
+        { key: 'secteur', label: 'Secteur (azimut)', type: 'text' },
+        { key: 'sensitivity', label: 'Sensibilité du SFP', type: 'number', min: -30, max: -5, step: 0.1, unit: 'dBm' },
+        { key: 'overload', label: 'Saturation du SFP', type: 'number', min: -10, max: 5, step: 0.5, unit: 'dBm' },
+        P.connector],
+      inPorts: () => [{ kind: 'opt', label: 'SFP fronthaul' }], outPorts: () => [],
+      mapping: 'none'
+    },
+    msan: {
+      label: 'Armoire active de rue (MSAN, montée en débit)', short: 'MSAN', cat: 'noeuds', color: '#92400e', receiver: true,
+      desc: 'Nœud actif de quartier (FTTC / FTTN) : il reçoit la fibre de collecte et dessert les abonnés proches sur leurs paires de cuivre (VDSL2) ou en Ethernet. Seule la liaison optique est simulée.',
+      defaults: { name: 'Armoire MSAN', sensitivity: -20, overload: -3, connector: 'LC/UPC', ethPorts: 4 },
+      props: [P.name,
+        { key: 'sensitivity', label: 'Sensibilité du SFP', type: 'number', min: -30, max: -5, step: 0.5, unit: 'dBm' },
+        { key: 'overload', label: 'Saturation du SFP', type: 'number', min: -10, max: 5, step: 0.5, unit: 'dBm' },
+        P.connector,
+        { key: 'ethPorts', label: 'Ports abonnés (cuivre / Ethernet)', type: 'select', options: [2, 4, 8] }],
+      inPorts: () => [{ kind: 'opt', label: 'SFP collecte' }], outPorts: p => ethPorts(+p.ethPorts, 'Abonné'),
+      mapping: 'none'
+    },
+
+    /* ---------------- Datacenter & industrie ---------------- */
+    mpo_cassette: {
+      label: 'Cassette MPO/MTP ↔ LC (baie de datacenter)', short: 'MPO', cat: 'dc', color: '#7e22ce',
+      desc: 'Module de baie : raccorde un trunk MPO/MTP de 12 fibres aux 12 ports LC de sa façade, brassés par jarretières vers les switchs et les serveurs. Perte : une connexion MPO et une connexion LC.',
+      defaults: { name: 'Cassette MPO', side: 'lc-mpo', grade: 'faible', connector: 'LC/UPC' },
+      props: [P.name,
+        { key: 'side', label: 'Sens', type: 'select', options: [['lc-mpo', 'Départ : ports LC → trunk MPO'], ['mpo-lc', 'Arrivée : trunk MPO → ports LC']] },
+        { key: 'grade', label: 'Qualité des connexions', type: 'select', options: Object.entries(MPO_GRADES).map(([k, g]) => [k, g.label]) },
+        P.connector],
+      inPorts: p => (p.side === 'mpo-lc' ? optPorts(1, 'Trunk MPO') : optPorts(12, 'LC')),
+      outPorts: p => (p.side === 'mpo-lc' ? optPorts(12, 'LC') : optPorts(1, 'Trunk MPO')),
+      mapping: 'broadcast',
+      loss: p => { const g = MPO_GRADES[p.grade] || MPO_GRADES.faible; return [
+        { label: `Connexion MPO (${g.short})`, loss: g.mpo, reflective: true, kind: 'connector' },
+        { label: `Connexion ${p.connector} (${g.short})`, loss: g.lc, reflective: true, kind: 'connector' }]; }
+    },
+    server: {
+      label: 'Serveur (carte réseau SFP)', short: 'SRV', cat: 'dc', color: '#475569', receiver: true,
+      desc: 'Serveur de baie relié au switch d\'accès (« leaf ») par une carte réseau à module SFP : le plus souvent 10GBASE-SR, multimode à 850 nm.',
+      defaults: { name: 'Serveur', fiberMode: 'Multimode (MM)', sensitivity: -9.9, overload: -1, connector: 'LC/UPC' },
+      props: [P.name,
+        { key: 'fiberMode', label: 'Type de SFP', type: 'select', options: ['Multimode (MM)', 'Monomode (SM)'] },
+        { key: 'sensitivity', label: 'Sensibilité du SFP', type: 'number', min: -30, max: -5, step: 0.1, unit: 'dBm' },
+        { key: 'overload', label: 'Saturation du SFP', type: 'number', min: -10, max: 5, step: 0.5, unit: 'dBm' },
+        P.connector],
+      inPorts: () => [{ kind: 'opt', label: 'SFP' }], outPorts: () => [],
+      mapping: 'none'
+    },
+    switch_ind: {
+      label: 'Switch industriel (rail DIN)', short: 'SW-I', cat: 'dc', color: '#15803d', receiver: true,
+      desc: 'Switch durci (température, vibrations, poussière) monté sur rail DIN dans une armoire d\'atelier. Il reçoit la fibre de la dorsale de l\'usine et dessert en RJ45 les automates, les capteurs et les postes de supervision.',
+      defaults: { name: 'Switch atelier', fiberMode: 'Monomode (SM)', sensitivity: -20, overload: -3, connector: 'LC/UPC', ethPorts: 4, indice: 'IP30' },
+      props: [P.name,
+        { key: 'fiberMode', label: 'Type de SFP', type: 'select', options: ['Monomode (SM)', 'Multimode (MM)'] },
+        { key: 'sensitivity', label: 'Sensibilité du SFP', type: 'number', min: -30, max: -5, step: 0.5, unit: 'dBm' },
+        { key: 'overload', label: 'Saturation du SFP', type: 'number', min: -10, max: 5, step: 0.5, unit: 'dBm' },
+        P.connector,
+        { key: 'ethPorts', label: 'Ports RJ45', type: 'select', options: [2, 4, 8] },
+        { key: 'indice', label: 'Indice de protection', type: 'select', options: ['IP30', 'IP40', 'IP67'] }],
+      inPorts: () => [{ kind: 'opt', label: 'SFP dorsale' }], outPorts: p => ethPorts(+p.ethPorts, 'RJ45'),
+      mapping: 'none'
+    },
+    automate: {
+      label: 'Automate programmable (API) / supervision', short: 'API', cat: 'dc', color: '#334155',
+      desc: 'Automate d\'une ligne de production, ou poste de supervision, relié en RJ45 au switch industriel de l\'atelier.',
+      defaults: { name: 'Automate' },
+      props: [P.name],
+      inPorts: () => [{ kind: 'eth', label: 'Ethernet' }], outPorts: () => [],
+      mapping: 'none'
+    },
+
     /* ---------------- Bâtiments & équipements intérieurs ---------------- */
     bld_simple: {
       label: 'Bâtiment simple (villa, boutique, bureau RDC)', short: 'BÂT', cat: 'bat', color: '#0891b2', container: true,
       desc: 'Zone bâtiment de plain-pied. Un câble qui y entre depuis l\'extérieur traverse le point d\'adduction puis la gaine intérieure.',
       defaults: { name: 'Villa', kind: 'Villa / Pavillon', gaineLength: 15 },
       props: [P.name,
-        { key: 'kind', label: 'Type', type: 'select', options: ['Villa / Pavillon', 'Boutique', 'Bureau RDC', 'Bâtiment administratif'] },
+        { key: 'kind', label: 'Type', type: 'select', options: ['Villa / Pavillon', 'Boutique', 'Bureau RDC', 'Bâtiment administratif', 'Shelter de site radio', 'Salle informatique / datacenter', 'Usine / atelier'] },
         { key: 'gaineLength', label: 'Gaine intérieure (adduction → PTO)', type: 'number', min: 0, max: 200, step: 1, unit: 'm' }],
       inPorts: () => [], outPorts: () => [], mapping: 'none'
     },
@@ -342,7 +444,7 @@
       desc: 'Compartiment d\'un bâtiment : appartement, bureau, commerce, pièce, parties communes ou local technique. Il se dessine dans un bâtiment ou un étage, se déplace et s\'ajuste à la souris (poignées des coins et des côtés) ; les équipements posés dedans y sont rattachés. Il n\'intervient pas dans les calculs.',
       defaults: { name: 'Logement', kind: 'Logement' },
       props: [P.name,
-        { key: 'kind', label: 'Type de local', type: 'select', options: ['Logement', 'Bureau', 'Commerce', 'Pièce', 'Parties communes', 'Local technique'] }],
+        { key: 'kind', label: 'Type de local', type: 'select', options: ['Logement', 'Bureau', 'Commerce', 'Pièce', 'Parties communes', 'Local technique', 'Baie informatique', 'Atelier'] }],
       inPorts: () => [], outPorts: () => [], mapping: 'none'
     },
     odf_int: {
@@ -464,7 +566,10 @@
     return l;
   }
 
-  const TERMINALS = new Set(['pc', 'phone', 'tv']);
+  const TERMINALS = new Set(['pc', 'phone', 'tv', 'automate']);
+  /** Récepteur optique actif (jugé avec sa propre sensibilité) / émetteur (tête de liaison). */
+  const isReceiver = d => !!d && (d.type === 'ont' || (d.type === 'switch' && d.props.role === 'acces') || !!(CATALOG[d.type] && CATALOG[d.type].receiver));
+  const isEmitter = d => !!d && (d.type === 'olt' || d.type === 'switch_aon' || (d.type === 'switch' && d.props.role === 'coeur') || !!(CATALOG[d.type] && CATALOG[d.type].emitter));
 
   /* ------------------------------------------------------------------ */
   /*  Géométrie des bâtiments                                             */
@@ -669,10 +774,10 @@
       const same = !!ba && ba === bb;
       const len = Math.max(0, +link.length || 0);
       const isMM = t === 'om3' || t === 'om4';
-      const ACCESS_SM = new Set(['olt', 'ont', 'sro', 'pbo_ext', 'pbo_int', 'pmi', 'pto', 'splitter']);
-      const ACTIVE = new Set(['olt', 'ont', 'switch', 'switch_aon']);
-      const mmSfp = d => d.type === 'switch' && /Multimode/.test(d.props.fiberMode || '');
-      const smSfp = d => d.type === 'switch' && !/Multimode/.test(d.props.fiberMode || '');
+      const ACCESS_SM = new Set(['olt', 'ont', 'sro', 'pbo_ext', 'pbo_int', 'pmi', 'pto', 'splitter', 'bbu', 'rrh']);
+      const ACTIVE = new Set(['olt', 'ont', 'switch', 'switch_aon', 'bbu', 'rrh', 'msan', 'server', 'switch_ind']);
+      const mmSfp = d => d.props.fiberMode !== undefined && /Multimode/.test(d.props.fiberMode);
+      const smSfp = d => d.props.fiberMode !== undefined && !/Multimode/.test(d.props.fiberMode);
       const name = d => d.props.name;
       const where = d => { const b = this.building(d); return b ? `dans « ${b.props.name} »` : 'à l\'extérieur'; };
       if (CABLES[t].kind !== 'opt') return out;
@@ -708,13 +813,21 @@
           if (!same) add(`Câble intérieur LSZH entre ${name(A)} (${where(A)}) et ${name(B)} (${where(B)}) : il ne doit pas cheminer à l'extérieur. Utilisez un drop ou un câble de transport.`, ['drop', 'smf']);
           else if (ba.type === 'bld_mdu' && A.floor !== B.floor) add(`LSZH entre deux étages : la liaison verticale se fait en câble de colonne montante.`, ['riser']);
           break;
+        case 'ftta':
+          if (B.type !== 'rrh') add(`Le câble FTTA monte du pied de pylône jusqu'à une tête radio (RRH), pas jusqu'à ${name(B)}.`, ['patch', 'drop']);
+          else if (len > 150) add(`Câble FTTA de ${len} m : il ne fait que la hauteur du pylône. Pour une liaison, choisissez un câble de transport.`, ['smf']);
+          break;
+        case 'mpo':
+          if (A.type !== 'mpo_cassette' || B.type !== 'mpo_cassette') add(`Un trunk MPO relie deux cassettes MPO (une par baie) ; ${A.type !== 'mpo_cassette' ? name(A) : name(B)} n'a pas de port MPO.`, ['om4', 'patch']);
+          else if (!same) add(`Trunk MPO entre deux bâtiments : il se pose entre les baies d'une même salle. Entre deux bâtiments, choisissez un câble de dorsale.`, ['om4', 'smf']);
+          break;
         case 'riser':
           if (!same || ba.type !== 'bld_mdu') add(`La colonne montante relie deux étages d'un même immeuble ; ici, ${name(A)} et ${name(B)} ne sont pas dans un même immeuble.`, ['smf', 'drop']);
           else if (A.floor === B.floor) add(`Colonne montante sur un même étage : pour une liaison horizontale, utilisez un câble intérieur LSZH (ou une jarretière dans le même local).`, ['lszh', 'patch']);
           break;
       }
       // Un équipement actif se raccorde par une jarretière (sur ODF, PTO, PMI…), pas directement sur un câble posé
-      if (t !== 'patch' && !isMM) {
+      if (t !== 'patch' && t !== 'ftta' && !isMM) {
         const act = [A, B].find(d => ACTIVE.has(d.type));
         if (act) add(`${name(act)} est un équipement actif : il se branche par une jarretière sur un ODF, un PMI ou une PTO, pas directement sur un ${CABLES[t].short}.`, ['patch']);
       }
@@ -745,6 +858,7 @@
         const ba = this.building(A), bb = this.building(B);
         if (obj.type === 'cat6') return 'Branchement abonné';
         if (obj.type === 'riser') return 'Colonne montante';
+        if (obj.type === 'ftta') return 'Branchement abonné';
         if (ba && ba === bb && A.floor !== B.floor && ba.type === 'bld_mdu') return 'Colonne montante';
         if (obj.type === 'patch') {
           if (!ba && !bb) return 'NRO';
@@ -758,7 +872,9 @@
         return 'Branchement abonné';
       }
       const d = obj, t = d.type, b = this.building(d);
-      if (t === 'olt' || t === 'switch' || t === 'switch_aon' || t === 'collecte') return b ? 'Branchement abonné' : 'NRO';
+      if (t === 'olt' || t === 'switch' || t === 'switch_aon' || t === 'collecte' || t === 'bbu') return b ? 'Branchement abonné' : 'NRO';
+      if (t === 'mpo_cassette') return 'ODF / PMI (pied d\'immeuble)';
+      if (isReceiver(d)) return 'Branchement abonné';
       if (t === 'odf') return b ? 'ODF / PMI (pied d\'immeuble)' : 'NRO';
       if (t === 'odf_int' || t === 'pmi') return 'ODF / PMI (pied d\'immeuble)';
       if (t === 'pbo_int') return 'PBO d\'étage';
@@ -778,7 +894,7 @@
       if (li.gaine > 0) items.push({ label: `Gaine intérieure ${li.gaineBld.props.name} ${fmtLen(li.gaine)} × ${fmt(att, 2)} dB/km`, loss: att * li.gaine / 1000, pos: li.base, len: li.gaine, att, kind: 'fiber' });
       // Compatibilité connecteurs (jarretières)
       const warnings = [];
-      if (link.type === 'patch') {
+      if (link.type === 'patch' || link.type === 'ftta') {
         for (const end of ['a', 'b']) {
           const D = this.dev.get(link[end].dev);
           if (D && D.props && D.props.connector) {
@@ -911,7 +1027,7 @@
      * celle de la classe GPON de l'OLT qui l'alimente (`res`), B+ par défaut.
      */
     sensOf(d, res) {
-      if (d.type === 'ont' || (d.type === 'switch' && d.props.role === 'acces'))
+      if (isReceiver(d))
         return { sens: +d.props.sensitivity, over: +d.props.overload, passive: false };
       const src = res && !res.dark ? this.dev.get(res.src) : null;
       const ref = src && src.type === 'olt' && GPON_CLASSES[src.props.classe] ? src.props.classe : 'B+';
@@ -941,7 +1057,7 @@
       else if (d.type === 'collecte') {
         const used = portsOf(d).out.some((p, k) => this.outMap.has(devId + '#' + k));
         st = !d.props.core ? { code: 'weak', label: 'Non raccordé au cœur de réseau' } : used ? { code: 'ok', label: 'En service' } : { code: 'idle', label: 'En service (aucun lien de collecte)' };
-      } else if (d.type === 'olt' || d.type === 'switch_aon' || (d.type === 'switch' && d.props.role === 'coeur')) {
+      } else if (isEmitter(d)) {
         const used = portsOf(d).out.some((p, k) => this.outMap.has(devId + '#' + k));
         st = used ? { code: 'ok', label: 'En émission' } : { code: 'idle', label: 'En service (aucun port raccordé)' };
       } else if (d.type === 'router' || TERMINALS.has(d.type)) {
@@ -965,7 +1081,7 @@
     /** Disponibilité Ethernet d'un équipement (ONT, switch, routeur). */
     devUp(d, depth = 0) {
       if (!d || depth > 20) return { up: false, reason: 'Boucle' };
-      if (d.type === 'ont' || (d.type === 'switch' && d.props.role === 'acces')) {
+      if (isReceiver(d)) {
         const st = this.deviceState(d.id);
         return (st.code === 'ok' || st.code === 'weak') ? { up: true } : { up: false, reason: `${d.props.name} : ${st.label}` };
       }
@@ -1339,7 +1455,7 @@
   }
 
   global.OptiPhysics = {
-    ATTENUATION, SPLITTER_LOSS, JOINTS, FAULTS, CABLES, CATALOG, CONNECTORS, CATEGORIES, TERMINALS,
+    ATTENUATION, SPLITTER_LOSS, JOINTS, FAULTS, CABLES, CATALOG, CONNECTORS, CATEGORIES, TERMINALS, MPO_GRADES, isReceiver, isEmitter,
     PROFILES, GPON_DOWN, GPON_UP, ACCESS_MODES, autoSerial,
     REF_SENSITIVITY, REF_OVERLOAD, WEAK_MARGIN, GPON_CLASSES, budgetOf, VFL_RANGE, ETH_MAX, BLD_HEADER,
     connectorFamily, connectorColor, connectorFormat, bendLoss, faultLoss,

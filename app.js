@@ -377,6 +377,10 @@
       case 'ont': return st.power !== undefined ? dbm(st.power) : 'Rx —';
       case 'collecte': return `${p.accessMode === 'pppoe' ? 'PPPoE' : 'DHCP'} · ${p.core ? 'cœur OK' : 'hors cœur'}`;
       case 'switch_aon': return `Tx ${fmt(p.txPower, 1)} dBm · ${p.wavelength}`;
+      case 'bbu': return `Tx ${fmt(p.txPower, 1)} dBm · ${p.wavelength} nm`;
+      case 'rrh': return st.power !== undefined ? dbm(st.power) : (p.secteur || 'Rx —');
+      case 'msan': case 'server': case 'switch_ind': return st.power !== undefined ? `Rx ${dbm(st.power)}` : 'Rx —';
+      case 'mpo_cassette': return p.side === 'mpo-lc' ? 'MPO → 12 LC' : '12 LC → MPO';
       case 'router': { const w = S.services && S.services.boxes.get(d.id); return w ? (w.ok ? `WAN ${w.ip}` : 'WAN : échec') : `LAN ${p.lanIp}`; }
       case 'pc': case 'tv': case 'phone': { const r = S.services && S.services.terminals.get(d.id); return r && r.evaluated ? `${r.label} ${r.ok ? '✓' : '✗'}` : ''; }
       default: return '';
@@ -536,8 +540,10 @@
     { title: 'Actifs & Répartition (NRO)', items: ['collecte', 'olt', 'switch_aon', 'switch', 'odf'] },
     { title: 'Passifs extérieurs (ODN)', items: ['sro', 'pbo_ext', 'splitter', 'splice', 'coupler'] },
     { title: 'Bâtiments & équipements intérieurs', items: ['bld_simple', 'bld_mdu', 'local', 'odf_int', 'pmi', 'pbo_int'] },
-    { title: 'Câbles & jarretières', cables: ['smf', 'drop', 'lszh', 'riser', 'om3', 'om4', 'patch', 'cat6', 'uplink'] },
+    { title: 'Câbles & jarretières', cables: ['smf', 'drop', 'lszh', 'riser', 'om3', 'om4', 'mpo', 'ftta', 'patch', 'cat6', 'uplink'] },
     { title: 'Abonnés', items: ['pto', 'ont', 'router', 'pc', 'phone', 'tv'] },
+    { title: 'Nœuds actifs (site mobile, armoire de rue)', items: ['bbu', 'rrh', 'msan'] },
+    { title: 'Datacenter & industrie', items: ['mpo_cassette', 'server', 'switch_ind', 'automate'] },
     { title: 'Outils de mesure', tools: [['pm', 'Photomètre', 'Puissance reçue (dBm) et statut'], ['otdr', 'Réflectomètre OTDR', 'Courbe de rétrodiffusion'], ['vfl', 'Stylo optique (VFL)', 'Lumière rouge visible']] }
   ];
   const TOOL_ICONS = {
@@ -548,8 +554,8 @@
 
   function buildPalette() {
     let h = '';
-    PALETTE.forEach((sec, si) => {
-      h += `<details class="pal-sec" ${si < 6 ? 'open' : ''}><summary>${sec.title}</summary><div class="pal-grid">`;
+    PALETTE.forEach(sec => {
+      h += `<details class="pal-sec" open><summary>${sec.title}</summary><div class="pal-grid">`;
       (sec.items || []).forEach(t => {
         const def = CATALOG[t];
         h += `<div class="pal-item" draggable="true" data-type="${t}" title="${esc(def.desc)}" data-search="${esc((def.label + ' ' + def.short).toLowerCase())}">
@@ -1203,11 +1209,11 @@
     let h = `<div class="insp-head"><div><b>Aucune sélection</b><small>Cliquez sur un équipement, un câble ou un bâtiment</small></div></div>`;
     h += `<div class="section"><h4>Topologie</h4><table class="kv"><tr><td>Équipements</td><td>${n}</td></tr><tr><td>Bâtiments</td><td>${nb}${nr ? ` (${nr} ${nr > 1 ? 'locaux' : 'local'})` : ''}</td></tr><tr><td>Câbles</td><td>${S.topo.links.length}</td></tr>`;
     
-    const onts = S.topo.devices.filter(d => d.type === 'ont' || (d.type === 'switch' && d.props.role === 'acces'));
+    const onts = S.topo.devices.filter(d => P.isReceiver(d));
     if (onts.length) {
       const c = { ok: 0, weak: 0, los: 0, sat: 0, nc: 0, dark: 0 };
       onts.forEach(o => { const s = S.engine.deviceState(o.id); c[s.code] = (c[s.code] || 0) + 1; });
-      h += `<tr><td>Récepteurs (ONT / switch)</td><td><span class="st-ok">${c.ok} OK</span> · <span class="st-weak">${c.weak} faibles</span> · <span class="st-los">${c.los + c.sat} LOS/sat.</span></td></tr>`;
+      h += `<tr><td>Récepteurs (ONT, switchs, SFP)</td><td><span class="st-ok">${c.ok} OK</span> · <span class="st-weak">${c.weak} faibles</span> · <span class="st-los">${c.los + c.sat} LOS/sat.</span></td></tr>`;
     }
     h += '</table></div>';
     const w = S.engine.warnings();
@@ -1821,13 +1827,13 @@
   let labSel = 'tp1';
   function openLabs(id) {
     if (id) labSel = id;
-    const list = L.LABS.map(l => `<button class="lab-item ${l.id === labSel ? 'active' : ''}" data-lab="${l.id}"><span class="num">TP ${l.num}</span><b>${esc(l.title)}</b><small>${esc(l.archi)} · ${esc(l.level)} · ${esc(l.duration)}</small></button>`).join('')
+    const list = L.LABS.map(l => `<button class="lab-item ${l.id === labSel ? 'active' : ''}" data-lab="${l.id}"><span class="num">TP ${l.num}</span><b>${esc(l.title)}</b><small>${esc(l.archi)} · ${esc(l.level)} · ${esc(l.duration)}${l.public ? ' · ' + esc(l.public) : ''}</small></button>`).join('')
       + '<div class="lab-sep">Exemples</div>'
       + L.EXAMPLES.map(x => `<button class="lab-item ${x.id === labSel ? 'active' : ''}" data-lab="${x.id}"><b>${esc(x.title)}</b></button>`).join('');
     let detail;
     const lab = L.LABS.find(l => l.id === labSel);
     if (lab) {
-      detail = `<div class="lab-head"><span class="tag">TP ${lab.num}</span><span class="tag">${esc(lab.archi)}</span><span class="tag">${esc(lab.level)}</span><span class="tag">⏱ ${esc(lab.duration)}</span></div>
+      detail = `<div class="lab-head"><span class="tag">TP ${lab.num}</span><span class="tag">${esc(lab.archi)}</span><span class="tag">${esc(lab.level)}</span><span class="tag">⏱ ${esc(lab.duration)}</span>${lab.public ? `<span class="tag" title="Niveaux visés">🎓 ${esc(lab.public)}</span>` : ''}</div>
         <h2>${esc(lab.title)}</h2>
         <div class="lab-actions"><button class="btn primary" data-load="${lab.id}">Charger la topologie du TP</button></div>
         <h4>Objectifs</h4><ul>${lab.objectives.map(o => `<li>${esc(o)}</li>`).join('')}</ul>
